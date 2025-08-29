@@ -16,6 +16,10 @@ Image processing is messy and no single library could do it all. Rawshift seeks 
 
 <!-- TODO: Add docs on the specific features, etc. on the docs.rs page -->
 
+## MSRV
+
+As of August 2025, the minimum supported Rust version (MSRV) is 1.89.0. This may be quite high but the reason is to ensure modern Rust features are available early in development. This may not be bumped up in for a good while.
+
 ## Developing
 
 It is important that development velocity is maintained regardless of project complexity. Unit tests for all contributions are expected, especially for platform-specific behaviours!
