@@ -23,3 +23,9 @@ As of August 2025, the minimum supported Rust version (MSRV) is 1.89.0. This may
 ## Developing
 
 It is important that development velocity is maintained regardless of project complexity. Unit tests for all contributions are expected, especially for platform-specific behaviours!
+
+### Testing
+
+```sh
+cargo test --features=serde
+```

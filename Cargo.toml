@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+log = "0.4"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+thiserror = "2.0"
+
+[features]
+# The `serde` feature enables serialization and deserialization support.
+serde = ["dep:serde"]
