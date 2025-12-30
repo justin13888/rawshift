@@ -1,3 +1,6 @@
 /target
 
 .DS_Store
+
+# Test data
+test_data/

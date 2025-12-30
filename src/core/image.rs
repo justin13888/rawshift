@@ -1,1 +1,243 @@
-// TODO: Structs: RawImage, Size, Point
+//! Core image structures and types.
+//!
+//! This module defines the fundamental structures for representing
+//! image dimensions, coordinates, and raw image data.
+
+/// Image dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Size {
+    /// Width in pixels
+    pub width: u32,
+    /// Height in pixels
+    pub height: u32,
+}
+
+impl Size {
+    /// Create a new Size.
+    pub fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+
+    /// Check if dimensions are valid (non-zero).
+    pub fn is_valid(&self) -> bool {
+        self.width > 0 && self.height > 0
+    }
+
+    /// Total number of pixels.
+    pub fn pixel_count(&self) -> u64 {
+        self.width as u64 * self.height as u64
+    }
+}
+
+/// A point in image coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Point {
+    /// X coordinate
+    pub x: u32,
+    /// Y coordinate
+    pub y: u32,
+}
+
+impl Point {
+    /// Create a new Point.
+    pub fn new(x: u32, y: u32) -> Self {
+        Self { x, y }
+    }
+
+    /// Origin point (0, 0).
+    pub const ORIGIN: Point = Point { x: 0, y: 0 };
+}
+
+/// A rectangular region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    /// Origin (top-left corner)
+    pub origin: Point,
+    /// Size of the rectangle
+    pub size: Size,
+}
+
+impl Rect {
+    /// Create a new Rect.
+    pub fn new(origin: Point, size: Size) -> Self {
+        Self { origin, size }
+    }
+
+    /// Create a rect from coordinates.
+    pub fn from_coords(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self {
+            origin: Point::new(x, y),
+            size: Size::new(width, height),
+        }
+    }
+
+    /// Right edge (x + width).
+    pub fn right(&self) -> u32 {
+        self.origin.x.saturating_add(self.size.width)
+    }
+
+    /// Bottom edge (y + height).
+    pub fn bottom(&self) -> u32 {
+        self.origin.y.saturating_add(self.size.height)
+    }
+}
+
+/// CFA (Color Filter Array) pattern.
+///
+/// Represents the Bayer pattern used in the camera's sensor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CfaPattern {
+    /// Red-Green / Green-Blue
+    Rggb,
+    /// Green-Red / Blue-Green
+    Grbg,
+    /// Blue-Green / Green-Red
+    Bggr,
+    /// Green-Blue / Red-Green
+    Gbrg,
+}
+
+impl CfaPattern {
+    /// Parse from a 4-element array (row-major 2x2).
+    ///
+    /// Values: 0=Red, 1=Green, 2=Blue
+    pub fn from_array(pattern: [u8; 4]) -> Option<Self> {
+        match pattern {
+            [0, 1, 1, 2] => Some(CfaPattern::Rggb),
+            [1, 0, 2, 1] => Some(CfaPattern::Grbg),
+            [2, 1, 1, 0] => Some(CfaPattern::Bggr),
+            [1, 2, 0, 1] => Some(CfaPattern::Gbrg),
+            _ => None,
+        }
+    }
+
+    /// Convert to a 4-element array.
+    pub fn to_array(self) -> [u8; 4] {
+        match self {
+            CfaPattern::Rggb => [0, 1, 1, 2],
+            CfaPattern::Grbg => [1, 0, 2, 1],
+            CfaPattern::Bggr => [2, 1, 1, 0],
+            CfaPattern::Gbrg => [1, 2, 0, 1],
+        }
+    }
+
+    /// Get a human-readable name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            CfaPattern::Rggb => "RGGB",
+            CfaPattern::Grbg => "GRBG",
+            CfaPattern::Bggr => "BGGR",
+            CfaPattern::Gbrg => "GBRG",
+        }
+    }
+}
+
+/// Raw image data container.
+///
+/// Holds the decoded raw sensor data along with associated metadata.
+#[derive(Debug, Clone)]
+pub struct RawImage {
+    /// Full sensor dimensions
+    pub size: Size,
+    /// Active/crop area (usable image region)
+    pub active_area: Rect,
+    /// Bits per sample (typically 12, 14, or 16)
+    pub bit_depth: u8,
+    /// CFA pattern
+    pub cfa_pattern: CfaPattern,
+    /// Black level values (per CFA color channel)
+    pub black_levels: [u16; 4],
+    /// White/saturation level
+    pub white_level: u16,
+    /// Raw pixel data (16-bit values, one per sensor pixel)
+    /// Stored in row-major order: data[y * width + x]
+    pub data: Vec<u16>,
+}
+
+impl RawImage {
+    /// Create a new empty RawImage with the given parameters.
+    pub fn new(size: Size, active_area: Rect, bit_depth: u8, cfa_pattern: CfaPattern) -> Self {
+        let pixel_count = size.pixel_count() as usize;
+        Self {
+            size,
+            active_area,
+            bit_depth,
+            cfa_pattern,
+            black_levels: [0; 4],
+            white_level: (1u16 << bit_depth) - 1,
+            data: vec![0u16; pixel_count],
+        }
+    }
+
+    /// Get pixel value at (x, y).
+    pub fn get_pixel(&self, x: u32, y: u32) -> Option<u16> {
+        if x < self.size.width && y < self.size.height {
+            let idx = (y as usize) * (self.size.width as usize) + (x as usize);
+            Some(self.data[idx])
+        } else {
+            None
+        }
+    }
+
+    /// Set pixel value at (x, y).
+    /// Set pixel value at (x, y).
+    pub fn set_pixel(&mut self, x: u32, y: u32, value: u16) {
+        if x < self.size.width && y < self.size.height {
+            let idx = (y as usize) * (self.size.width as usize) + (x as usize);
+            self.data[idx] = value;
+        }
+    }
+}
+
+/// A simple container for RGB image data
+#[derive(Debug, Clone)]
+pub struct RgbImage {
+    pub width: u32,
+    pub height: u32,
+    /// Interleaved RGB data (R, G, B, R, G, B...)
+    pub data: Vec<u16>,
+}
+
+impl RgbImage {
+    /// Create a new RgbImage
+    pub fn new(width: u32, height: u32, data: Vec<u16>) -> Self {
+        Self {
+            width,
+            height,
+            data,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_size() {
+        let size = Size::new(100, 200);
+        assert_eq!(size.pixel_count(), 20000);
+        assert!(size.is_valid());
+
+        let empty = Size::new(0, 100);
+        assert!(!empty.is_valid());
+    }
+
+    #[test]
+    fn test_cfa_pattern() {
+        assert_eq!(CfaPattern::from_array([0, 1, 1, 2]), Some(CfaPattern::Rggb));
+        assert_eq!(CfaPattern::Rggb.to_array(), [0, 1, 1, 2]);
+        assert_eq!(CfaPattern::Rggb.name(), "RGGB");
+    }
+
+    #[test]
+    fn test_raw_image() {
+        let size = Size::new(10, 10);
+        let active = Rect::from_coords(0, 0, 10, 10);
+        let mut img = RawImage::new(size, active, 14, CfaPattern::Rggb);
+
+        img.set_pixel(5, 5, 1000);
+        assert_eq!(img.get_pixel(5, 5), Some(1000));
+        assert_eq!(img.get_pixel(100, 100), None);
+    }
+}
