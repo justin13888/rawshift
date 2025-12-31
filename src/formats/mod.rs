@@ -4,7 +4,7 @@
 //! Use `RawFile::open()` as the common entry point for automatic format detection.
 
 pub mod arw;
-pub mod tiff;
+pub mod dng;
 
 use std::io::{Read, Seek, SeekFrom};
 
