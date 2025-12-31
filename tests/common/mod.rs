@@ -1,6 +1,9 @@
 //! Ground truth structures for test validation.
 //!
 //! These structures match the JSON annotation schema defined for test files.
+//! Some fields are reserved for future use.
+
+#![allow(dead_code)]
 
 use serde::Deserialize;
 

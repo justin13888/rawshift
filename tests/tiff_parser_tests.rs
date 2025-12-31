@@ -6,7 +6,7 @@
 mod common;
 
 use common::{load_ground_truth, test_data_path, test_fixture_path};
-use rawshift::tiff::{ByteOrder, TiffParser, TiffTag};
+use rawshift::tiff::{TiffParser, TiffTag};
 use std::fs::File;
 use std::io::BufReader;
 

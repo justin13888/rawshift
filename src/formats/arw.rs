@@ -433,7 +433,7 @@ impl<R: Read + Seek> ArwFile<R> {
                     let tile_pixels = match decoder.decode(&tile_data) {
                         Ok(pixels) => pixels,
                         Err(e) => {
-                            eprintln!("Warning: Failed to decode tile {}: {}", tile_idx, e);
+                            log::warn!("Failed to decode tile {}: {}", tile_idx, e);
                             // Fill with zeros and continue
                             vec![0u16; tile_w * tile_h]
                         }
