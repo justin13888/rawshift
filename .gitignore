@@ -4,3 +4,7 @@
 
 # Test data
 test_data/
+test_fixtures/
+*.png
+*.jpeg
+*.jpg
