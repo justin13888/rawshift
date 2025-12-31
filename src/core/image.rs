@@ -180,7 +180,6 @@ impl RawImage {
     }
 
     /// Set pixel value at (x, y).
-    /// Set pixel value at (x, y).
     pub fn set_pixel(&mut self, x: u32, y: u32, value: u16) {
         if x < self.size.width && y < self.size.height {
             let idx = (y as usize) * (self.size.width as usize) + (x as usize);
