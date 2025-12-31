@@ -1,80 +1,6 @@
-use crate::core::image::{CfaPattern, RawImage, RgbImage};
-
-/// Error type for demosaicing operations.
-#[derive(Debug, Clone)]
-pub enum DemosaicError {
-    /// Output buffer size does not match expected size
-    BufferSizeMismatch {
-        /// Expected buffer size in u16 elements
-        expected: usize,
-        /// Actual buffer size provided
-        actual: usize,
-    },
-    /// Invalid image dimensions
-    InvalidDimensions,
-}
-
-impl std::fmt::Display for DemosaicError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DemosaicError::BufferSizeMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "buffer size mismatch: expected {} elements, got {}",
-                    expected, actual
-                )
-            }
-            DemosaicError::InvalidDimensions => write!(f, "invalid image dimensions"),
-        }
-    }
-}
-
-impl std::error::Error for DemosaicError {}
-
-/// Trait for demosaicing algorithms.
-///
-/// Implementors should override [`demosaic_into`](Self::demosaic_into) as the primary method.
-/// The [`demosaic`](Self::demosaic) method provides a convenience wrapper that allocates output.
-///
-/// # Example
-///
-/// ```ignore
-/// use rawshift::processing::demosaic::{Bilinear, DemosaicMethod};
-///
-/// let demosaiced = Bilinear.demosaic(&raw_image);
-/// ```
-pub trait DemosaicMethod {
-    /// Demosaic a raw image into a pre-allocated RGB buffer.
-    ///
-    /// This is the primary method that implementors must override.
-    /// The output buffer must have exactly `width * height * 3` elements.
-    ///
-    /// # Arguments
-    /// * `raw` - The raw image to demosaic
-    /// * `output` - Pre-allocated buffer for RGB output (interleaved R, G, B, R, G, B, ...)
-    ///
-    /// # Errors
-    /// Returns [`DemosaicError::BufferSizeMismatch`] if buffer size is incorrect.
-    fn demosaic_into(&self, raw: &RawImage, output: &mut [u16]) -> Result<(), DemosaicError>;
-
-    /// Demosaic a raw image into a newly allocated RGB image.
-    ///
-    /// This is a convenience wrapper that allocates the output buffer
-    /// and calls [`demosaic_into`](Self::demosaic_into).
-    #[must_use]
-    fn demosaic(&self, raw: &RawImage) -> RgbImage {
-        let width = raw.active_area.size.width;
-        let height = raw.active_area.size.height;
-        let mut data = vec![0u16; (width as usize) * (height as usize) * 3];
-        self.demosaic_into(raw, &mut data)
-            .expect("demosaic_into failed with correctly sized buffer");
-        RgbImage {
-            width,
-            height,
-            data,
-        }
-    }
-}
+use super::{DemosaicError, DemosaicMethod};
+use crate::core::image::{CfaPattern, RawImage};
+use rayon::prelude::*;
 
 /// Bilinear interpolation demosaicing algorithm.
 ///
@@ -87,8 +13,6 @@ pub struct Bilinear;
 
 impl DemosaicMethod for Bilinear {
     fn demosaic_into(&self, raw: &RawImage, output: &mut [u16]) -> Result<(), DemosaicError> {
-        use rayon::prelude::*;
-
         let width = raw.active_area.size.width;
         let height = raw.active_area.size.height;
         let x_offset = raw.active_area.origin.x;
@@ -195,7 +119,7 @@ where
                     if matches!(pattern, CfaPattern::Rggb) {
                         (
                             avg2(get_raw(x, y.saturating_sub(1)), get_raw(x, y + 1)),
-                            avg2(get_raw(x.saturating_sub(1), y), get_raw(x + 1, y)),
+                            avg2(get_raw(x.saturating_sub(1), y), get_raw(x, y + 1)),
                         )
                     } else {
                         (
@@ -221,7 +145,7 @@ where
                         // GBRG: G B G B. At G. Horizontal B, Vert R.
                         (
                             avg2(get_raw(x, y.saturating_sub(1)), get_raw(x, y + 1)),
-                            avg2(get_raw(x.saturating_sub(1), y), get_raw(x + 1, y)),
+                            avg2(get_raw(x.saturating_sub(1), y), get_raw(x, y + 1)),
                         )
                     }
                 } else {
@@ -230,7 +154,7 @@ where
                     if matches!(pattern, CfaPattern::Grbg) {
                         (
                             avg2(get_raw(x, y.saturating_sub(1)), get_raw(x, y + 1)),
-                            avg2(get_raw(x.saturating_sub(1), y), get_raw(x + 1, y)),
+                            avg2(get_raw(x.saturating_sub(1), y), get_raw(x, y + 1)),
                         )
                     } else {
                         // GBRG: R G R G. At G. Horizontal R, Vert B.
@@ -291,8 +215,6 @@ fn avg2(a: u16, b: u16) -> u16 {
 fn avg4(a: u16, b: u16, c: u16, d: u16) -> u16 {
     ((a as u32 + b as u32 + c as u32 + d as u32) / 4) as u16
 }
-
-// TODO: AHD, VHG algorithms
 
 #[cfg(test)]
 mod tests {
@@ -461,20 +383,5 @@ mod tests {
         assert_eq!(avg4(100, 100, 100, 100), 100);
         assert_eq!(avg4(0, 100, 200, 300), 150);
         assert_eq!(avg4(0, 0, 0, 65535), 16383);
-    }
-
-    #[test]
-    fn test_demosaic_error_display() {
-        let err = DemosaicError::BufferSizeMismatch {
-            expected: 300,
-            actual: 100,
-        };
-        let msg = format!("{}", err);
-        assert!(msg.contains("300"));
-        assert!(msg.contains("100"));
-
-        let err = DemosaicError::InvalidDimensions;
-        let msg = format!("{}", err);
-        assert!(msg.contains("dimension"));
     }
 }
