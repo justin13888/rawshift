@@ -18,12 +18,19 @@ fn main() {
     let path = PathBuf::from(&path);
     let output_path = PathBuf::from("output.png");
 
+    use rawshift::formats::export::EncodeOptions;
+
+    // ...
     let file = File::open(&path).expect("Failed to open file");
     let reader = BufReader::new(file);
 
     let mut raw = RawFile::open(reader).expect("Failed to open image");
     println!("Opened image");
-    raw.export(&output_path, &ProcessingOptions::default())
-        .expect("Failed to export image");
+    raw.export(
+        &output_path,
+        &ProcessingOptions::default(),
+        &EncodeOptions::default(),
+    )
+    .expect("Failed to export image");
     println!("Exported image at {}", output_path.display());
 }

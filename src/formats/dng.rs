@@ -69,6 +69,9 @@ pub struct DngMetadata {
     pub baseline_exposure: Option<f32>,
 }
 
+/// Type alias for raw IFD location: (index in main chain, (parent_index, sub_index) if subifd)
+type RawIfdLocation = (Option<usize>, Option<(usize, usize)>);
+
 /// Parsed Adobe DNG file.
 pub struct DngFile<R> {
     parser: TiffParser<R>,
@@ -115,7 +118,7 @@ impl<R: Read + Seek> DngFile<R> {
     fn find_raw_ifd_with_parser(
         ifds: &[Ifd],
         parser: &mut TiffParser<R>,
-    ) -> RawResult<(Option<usize>, Option<(usize, usize)>)> {
+    ) -> RawResult<RawIfdLocation> {
         let mut best_match: Option<(usize, Option<usize>, u64)> = None;
 
         for (ifd_idx, ifd) in ifds.iter().enumerate() {
@@ -785,6 +788,55 @@ impl<R: Read + Seek> DngFile<R> {
             None
         };
         Ok(image)
+    }
+}
+
+impl<R: Read + Seek> crate::core::MetadataExtractor for DngFile<R> {
+    fn extract_metadata(&self) -> crate::core::ImageMetadata {
+        use crate::core::metadata::*;
+
+        let m = self.metadata.as_ref();
+
+        ImageMetadata {
+            camera: CameraInfo {
+                make: m.map(|x| x.make.clone()).unwrap_or_default(),
+                model: m.map(|x| x.model.clone()).unwrap_or_default(),
+                unique_camera_model: m.map(|x| x.unique_camera_model.clone()),
+                lens_make: None,  // TODO: Extract from EXIF
+                lens_model: None, // TODO: Extract from EXIF
+                lens_info: None,
+                serial_number: None,
+            },
+            exif: ExifInfo::default(),         // TODO: Parse EXIF IFD
+            datetime: DateTimeInfo::default(), // TODO: Parse EXIF IFD
+            gps: GpsInfo::default(),           // TODO: Parse GPS IFD
+            dng_color: DngColorInfo {
+                color_matrix_1: m.and_then(|x| x.color_matrix1),
+                color_matrix_2: m.and_then(|x| x.color_matrix2),
+                calibration_illuminant_1: None, // TODO: Extract from IFD
+                calibration_illuminant_2: None, // TODO: Extract from IFD
+                as_shot_neutral: m.and_then(|x| x.as_shot_neutral),
+                analog_balance: m.and_then(|x| x.analog_balance),
+                white_balance: None,
+                color_temperature: None,
+            },
+            dng_calibration: DngCalibrationInfo {
+                baseline_exposure: m.and_then(|x| x.baseline_exposure.map(|v| v as f64)),
+                baseline_noise: None,
+                baseline_sharpness: None,
+                noise_profile: None, // TODO: Extract NoiseProfile tag
+                noise_reduction_applied: None,
+            },
+            dng_profile: DngProfileInfo::default(), // TODO: Extract ProfileName, ProfileToneCurve
+            image: ImageInfo {
+                orientation: None, // TODO: Extract from IFD0
+                bit_depth: m.map(|x| x.bit_depth).unwrap_or(16),
+                black_levels: m.map(|x| x.black_levels.clone()).unwrap_or_default(),
+                white_level: m.and_then(|x| x.white_levels.first().copied()),
+                default_crop_origin: m.and_then(|x| x.default_crop_origin),
+                default_crop_size: m.and_then(|x| x.default_crop_size),
+            },
+        }
     }
 }
 

@@ -495,6 +495,42 @@ impl<R: Read + Seek> ArwFile<R> {
     }
 }
 
+impl<R: Read + Seek> crate::core::MetadataExtractor for ArwFile<R> {
+    fn extract_metadata(&self) -> crate::core::ImageMetadata {
+        use crate::core::metadata::*;
+
+        let m = self.metadata.as_ref();
+
+        ImageMetadata {
+            camera: CameraInfo {
+                make: m.map(|x| x.make.clone()).unwrap_or_default(),
+                model: m.map(|x| x.model.clone()).unwrap_or_default(),
+                unique_camera_model: None, // ARW doesn't have this DNG tag
+                lens_make: None,           // TODO: Extract from MakerNotes
+                lens_model: None,          // TODO: Extract from MakerNotes
+                lens_info: None,
+                serial_number: None,
+            },
+            exif: ExifInfo::default(),          // TODO: Parse EXIF IFD
+            datetime: DateTimeInfo::default(),  // TODO: Parse EXIF IFD
+            gps: GpsInfo::default(),            // TODO: Parse GPS IFD
+            dng_color: DngColorInfo::default(), // Not applicable to ARW source
+            dng_calibration: DngCalibrationInfo::default(),
+            dng_profile: DngProfileInfo::default(),
+            image: ImageInfo {
+                orientation: None, // TODO: Extract from IFD0
+                bit_depth: m.map(|x| x.bit_depth).unwrap_or(14),
+                black_levels: m
+                    .map(|x| x.black_levels.iter().map(|&v| v as u32).collect())
+                    .unwrap_or_default(),
+                white_level: m.map(|x| x.white_level as u32),
+                default_crop_origin: m.map(|x| (x.active_area.origin.x, x.active_area.origin.y)),
+                default_crop_size: m.map(|x| (x.active_area.size.width, x.active_area.size.height)),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

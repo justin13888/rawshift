@@ -93,8 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Color Matrix disabled");
     }
 
+    use rawshift::formats::export::EncodeOptions;
+
     println!("Exporting to {:?}", args.output);
-    raw_file.export(&args.output, &options)?;
+    raw_file.export(&args.output, &options, &EncodeOptions::default())?;
 
     println!("Done!");
     Ok(())

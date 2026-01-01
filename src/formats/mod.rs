@@ -5,6 +5,10 @@
 
 pub mod arw;
 pub mod dng;
+pub mod dng_export;
+pub mod export;
+
+pub use dng_export::{export_dng, DngExportConfig};
 
 use std::io::{Read, Seek, SeekFrom};
 
@@ -14,8 +18,6 @@ use crate::processing::ProcessingOptions;
 use crate::tiff::{TiffParser, TiffTag};
 use std::path::Path;
 use tracing::instrument;
-use zune_core::colorspace::ColorSpace;
-use zune_image::image::Image;
 
 /// Supported RAW file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +57,18 @@ impl<R: Read + Seek> RawFile<R> {
         }
     }
 
-    /// Export the raw file to an image format based on the file extension.
+    /// Get unified metadata from this RAW file.
+    ///
+    /// This provides format-agnostic access to all available metadata.
+    pub fn metadata(&self) -> crate::core::ImageMetadata {
+        use crate::core::MetadataExtractor;
+        match self {
+            RawFile::Arw(arw) => arw.extract_metadata(),
+            RawFile::Dng(dng) => dng.extract_metadata(),
+        }
+    }
+
+    /// Export the raw file to an image format based on the encoded options.
     ///
     /// This runs the full processing pipeline:
     /// 1. Decode raw data
@@ -64,18 +77,20 @@ impl<R: Read + Seek> RawFile<R> {
     /// 4. Apply White Balance (if specified)
     /// 5. Apply Color Matrix (if specified)
     /// 6. Apply Gamma Correction (if specified)
-    /// 7. Save to disk
+    /// 7. Save to disk using format-specific encoder
     #[instrument(
         skip(self), 
         fields(
             path = %path.as_ref().display(),
-            options = ?options
+            process = ?processing_options,
+            encode = ?encode_options
         )
     )]
     pub fn export<P: AsRef<Path>>(
         &mut self,
         path: P,
-        options: &ProcessingOptions,
+        processing_options: &ProcessingOptions,
+        encode_options: &export::EncodeOptions,
     ) -> RawResult<()> {
         tracing::trace!("Exporting raw file");
 
@@ -129,7 +144,7 @@ impl<R: Read + Seek> RawFile<R> {
             }
 
             // Demosaic
-            let demosaic_impl = options.demosaic.to_demosaic();
+            let demosaic_impl = processing_options.demosaic.to_demosaic();
             let mut rgb = demosaic_impl.demosaic(&raw_image);
             
             // Transfer metadata
@@ -179,32 +194,73 @@ impl<R: Read + Seek> RawFile<R> {
         }
 
         // White Balance
-        if let Some(coeffs) = options.white_balance {
+        if let Some(coeffs) = processing_options.white_balance {
             tracing::trace!("Applying white balance");
             apply_white_balance(&mut rgb_image, coeffs);
         }
 
         // Color Matrix
-        if let Some(matrix) = options.color_matrix {
+        if let Some(matrix) = processing_options.color_matrix {
             tracing::trace!("Applying color matrix");
             apply_color_matrix(&mut rgb_image, &matrix);
         }
 
         // Gamma Correction
-        if let Some(gamma) = options.gamma {
+        if let Some(gamma) = processing_options.gamma {
             tracing::trace!("Applying gamma");
             apply_gamma(&mut rgb_image, gamma);
         }
 
         // 3. Save to Disk
-        tracing::trace!("Saving image to disk");
-        let image = Image::from_u16(
-            &rgb_image.data,
-            rgb_image.width as usize,
-            rgb_image.height as usize,
-            ColorSpace::RGB,
-        );
-        image.save(path)?;
+        tracing::info!("Encoding image to disk: {:?}", path.as_ref());
+        
+        match encode_options {
+            export::EncodeOptions::Png(opts) => {
+                use zune_png::PngEncoder;
+                use zune_core::options::EncoderOptions;
+                use zune_core::colorspace::ColorSpace;
+
+                // Configure options
+                let options = EncoderOptions::default()
+                    .set_width(rgb_image.width as usize)
+                    .set_height(rgb_image.height as usize)
+                    .set_colorspace(ColorSpace::RGB)
+                    .set_depth(opts.bit_depth);
+
+                // Prepare data (Big Endian for 16-bit PNG)
+                let data_bytes = if opts.bit_depth == zune_core::bit_depth::BitDepth::Sixteen {
+                     let mut bytes = Vec::with_capacity(rgb_image.data.len() * 2);
+                     for &pixel in &rgb_image.data {
+                         bytes.extend_from_slice(&pixel.to_be_bytes());
+                     }
+                     bytes
+                } else {
+                    // 8-bit downscaling
+                     let mut bytes = Vec::with_capacity(rgb_image.data.len());
+                     for &pixel in &rgb_image.data {
+                         bytes.push((pixel >> 8) as u8);
+                     }
+                     bytes
+                };
+
+                // Encode
+                let mut encoder = PngEncoder::new(&data_bytes, options);
+                let encoded_data = encoder.encode();
+                
+                // Write to file
+                let mut file = std::fs::File::create(path.as_ref())?;
+                use std::io::Write;
+                file.write_all(&encoded_data)?;
+            }
+            export::EncodeOptions::Dng(config) => {
+                export_dng(path.as_ref(), &rgb_image, &self.metadata(), config)?;
+            }
+            export::EncodeOptions::Jpeg(_) => unimplemented!("JPEG encoding not yet implemented"),
+            export::EncodeOptions::Avif(_) => unimplemented!("AVIF encoding not yet implemented"),
+            export::EncodeOptions::Heic(_) => unimplemented!("HEIC encoding not yet implemented"),
+            export::EncodeOptions::Jxl(_) => unimplemented!("JXL encoding not yet implemented"),
+            export::EncodeOptions::WebP(_) => unimplemented!("WebP encoding not yet implemented"),
+        }
 
         Ok(())
     }
