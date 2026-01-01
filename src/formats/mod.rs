@@ -9,10 +9,11 @@ pub mod dng;
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::error::{RawError, RawResult};
-use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance};
+use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance, clamp_u16};
 use crate::processing::ProcessingOptions;
 use crate::tiff::{TiffParser, TiffTag};
 use std::path::Path;
+use tracing::instrument;
 use zune_core::colorspace::ColorSpace;
 use zune_image::image::Image;
 
@@ -29,11 +30,10 @@ pub enum RawFormat {
 ///
 /// Wraps the specific format implementation for the detected file type.
 pub enum RawFile<R> {
+    /// Sony ARW format
     Arw(Box<arw::ArwFile<R>>),
-    Dng,
-    // Add other formats here as they are implemented
-    // Jpeg(jpeg::JpegFile<R>),
-    // etc.
+    /// Adobe DNG format
+    Dng(Box<dng::DngFile<R>>),
 }
 
 impl<R: Read + Seek> RawFile<R> {
@@ -49,9 +49,8 @@ impl<R: Read + Seek> RawFile<R> {
                 Ok(RawFile::Arw(Box::new(file)))
             }
             RawFormat::Dng => {
-                // For now, return the Dng variant without parsing content
-                // TODO: Implement DNG parsing
-                Ok(RawFile::Dng)
+                let file = dng::DngFile::parse(reader)?;
+                Ok(RawFile::Dng(Box::new(file)))
             }
         }
     }
@@ -66,72 +65,156 @@ impl<R: Read + Seek> RawFile<R> {
     /// 5. Apply Color Matrix (if specified)
     /// 6. Apply Gamma Correction (if specified)
     /// 7. Save to disk
+    #[instrument(
+        skip(self), 
+        fields(
+            path = %path.as_ref().display(),
+            options = ?options
+        )
+    )]
     pub fn export<P: AsRef<Path>>(
         &mut self,
         path: P,
         options: &ProcessingOptions,
     ) -> RawResult<()> {
-        let mut raw_image = match self {
-            RawFile::Arw(arw) => arw.decode_raw()?,
-            RawFile::Dng => {
-                return Err(RawError::UnsupportedFormat(
-                    "DNG export not implemented".to_string(),
-                ))
+        tracing::trace!("Exporting raw file");
+
+        // 1. Obtain the initial RGB image
+        // Strategies:
+        // A) LinearRaw (already RGB, e.g., iPhone ProRAW) -> Decode -> Scale to 16-bit
+        // B) Standard RAW (Bayer CFA) -> Decode -> Subtract Black -> Scale -> Demosaic
+        let mut rgb_image = if self.is_linear_raw_dng() {
+            tracing::trace!("Using LinearRaw path (already demosaiced)");
+            // A) LinearRaw Path
+            let RawFile::Dng(dng) = self else {
+                unreachable!()
+            };
+            
+            let bit_depth = dng.metadata().map(|m| m.bit_depth).unwrap_or(16);
+            let mut image = dng.decode_linear_raw()?;
+
+            // Normalize to 16-bit
+            let shift = 16u8.saturating_sub(bit_depth);
+            if shift > 0 {
+                tracing::debug!("Scaling {}-bit linear data to 16-bit", bit_depth);
+                for pixel in &mut image.data {
+                    let val = (*pixel as u32) << shift;
+                    *pixel = val.min(65535) as u16;
+                }
             }
+            image
+        } else {
+            tracing::trace!("Using standard CFA path (demosaicing needed)");
+            // B) Standard RAW Path
+            let mut raw_image = match self {
+                RawFile::Arw(arw) => arw.decode_raw()?,
+                RawFile::Dng(dng) => dng.decode_raw()?,
+            };
+
+            // Black Level Subtraction
+            // TODO: Handle per-channel black levels correctly
+            let black_level = raw_image.black_levels[0];
+            if black_level > 0 {
+                for pixel in &mut raw_image.data {
+                    *pixel = pixel.saturating_sub(black_level);
+                }
+            }
+
+            // Normalize to 16-bit
+            let shift = 16u8.saturating_sub(raw_image.bit_depth);
+            if shift > 0 {
+                for pixel in &mut raw_image.data {
+                    *pixel <<= shift;
+                }
+            }
+
+            // Demosaic
+            let demosaic_impl = options.demosaic.to_demosaic();
+            let mut rgb = demosaic_impl.demosaic(&raw_image);
+            
+            // Transfer metadata
+            rgb.baseline_exposure = raw_image.baseline_exposure;
+            rgb.default_crop = raw_image.default_crop;
+            
+            rgb
         };
 
-        // 1. Black Level Subtraction
-        // TODO: Handle per-channel black levels correctly
-        let black_level = raw_image.black_levels[0];
-        if black_level > 0 {
-            for pixel in &mut raw_image.data {
-                *pixel = pixel.saturating_sub(black_level);
+        // 2. Shared Post-Processing Pipeline
+        tracing::trace!("Applying post-processing");
+
+        // Apply Baseline Exposure
+        if let Some(exposure) = rgb_image.baseline_exposure {
+            // Exposure adjustment in EV. Gain = 2^exposure.
+            // Negative exposure (e.g. -0.8) means we need to apply gain < 1.0 (darken)? 
+            // Or usually BaselineExposure is a correction factor to applied: 
+            // "adjustment ... to match the baseline exposure".
+            // Typically means multiplying the linear values by 2^exposure.
+            let gain = 2.0f32.powf(exposure);
+            tracing::trace!("Applying baseline exposure gain: {:.4} (EV: {:.2})", gain, exposure);
+            for pixel in &mut rgb_image.data {
+                *pixel = clamp_u16(*pixel as f32 * gain);
             }
         }
 
-        // 2. Scale to 16-bit (Normalize)
-        let shift = 16u8.saturating_sub(raw_image.bit_depth);
-        if shift > 0 {
-            for pixel in &mut raw_image.data {
-                *pixel <<= shift;
-            }
+        // Apply Crop
+        if let Some(crop) = rgb_image.default_crop {
+             let x = crop.origin.x as usize;
+             let y = crop.origin.y as usize;
+             let w = crop.size.width as usize;
+             let h = crop.size.height as usize;
+             
+             if x + w <= rgb_image.width as usize && y + h <= rgb_image.height as usize {
+                 tracing::trace!("Cropping to default crop: {}x{} at {},{}", w, h, x, y);
+                 let mut new_data = Vec::with_capacity(w * h * 3);
+                 for row in 0..h {
+                     let src_base = ((y + row) * rgb_image.width as usize + x) * 3;
+                     new_data.extend_from_slice(&rgb_image.data[src_base..src_base + w * 3]);
+                 }
+                 rgb_image.width = w as u32;
+                 rgb_image.height = h as u32;
+                 rgb_image.data = new_data;
+             } else {
+                  tracing::warn!("Default crop out of bounds: {:?} vs {}x{}", crop, rgb_image.width, rgb_image.height);
+             }
         }
 
-        // 3. Demosaic
-        let demosaic_impl = options.demosaic.to_demosaic();
-        let mut rgb_image = demosaic_impl.demosaic(&raw_image);
-
-        // 4. White Balance
+        // White Balance
         if let Some(coeffs) = options.white_balance {
+            tracing::trace!("Applying white balance");
             apply_white_balance(&mut rgb_image, coeffs);
         }
 
-        // 5. Color Matrix
+        // Color Matrix
         if let Some(matrix) = options.color_matrix {
+            tracing::trace!("Applying color matrix");
             apply_color_matrix(&mut rgb_image, &matrix);
         }
 
-        // 6. Gamma
+        // Gamma Correction
         if let Some(gamma) = options.gamma {
+            tracing::trace!("Applying gamma");
             apply_gamma(&mut rgb_image, gamma);
         }
 
-        // 7. Save
-        let width = rgb_image.width;
-        let height = rgb_image.height;
-
-        // Create zune-image Image
-        // width, height, colorspace, depth, data
+        // 3. Save to Disk
+        tracing::trace!("Saving image to disk");
         let image = Image::from_u16(
             &rgb_image.data,
-            width as usize,
-            height as usize,
+            rgb_image.width as usize,
+            rgb_image.height as usize,
             ColorSpace::RGB,
         );
-
         image.save(path)?;
 
         Ok(())
+    }
+
+    /// Helper to check if the current file is a LinearRaw DNG
+    fn is_linear_raw_dng(&self) -> bool {
+        match self {
+            RawFile::Dng(dng) => dng.metadata().map(|m| m.is_linear_raw).unwrap_or(false),
+            _ => false,
+        }
     }
 
     /// Detect the format of the provided reader.

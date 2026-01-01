@@ -10,9 +10,9 @@ async fn main() -> eyre::Result<()> {
 
     match raw_file {
         RawFile::Arw(_arw) => {
-            println!("Opened ARW files");
+            println!("Opened ARW file");
         }
-        RawFile::Dng => {
+        RawFile::Dng(_dng) => {
             println!("Opened DNG file");
         }
     }

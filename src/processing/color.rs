@@ -169,6 +169,8 @@ mod tests {
             width,
             height,
             data,
+            baseline_exposure: None,
+            default_crop: None,
         }
     }
 

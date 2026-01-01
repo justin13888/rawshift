@@ -152,6 +152,12 @@ pub struct RawImage {
     /// Raw pixel data (16-bit values, one per sensor pixel)
     /// Stored in row-major order: data[y * width + x]
     pub data: Vec<u16>,
+    /// Baseline exposure offset in EV (e.g. -0.8).
+    /// Used by DNG to match the "baseline" look. None for standard ARW.
+    pub baseline_exposure: Option<f32>,
+    /// Default crop rectangle.
+    /// Used by DNG to define the final image composition area. None for standard ARW.
+    pub default_crop: Option<Rect>,
 }
 
 impl RawImage {
@@ -166,6 +172,8 @@ impl RawImage {
             black_levels: [0; 4],
             white_level: (1u16 << bit_depth) - 1,
             data: vec![0u16; pixel_count],
+            baseline_exposure: None,
+            default_crop: None,
         }
     }
 
@@ -195,6 +203,12 @@ pub struct RgbImage {
     pub height: u32,
     /// Interleaved RGB data (R, G, B, R, G, B...)
     pub data: Vec<u16>,
+    /// Baseline exposure offset in EV (e.g. -0.8).
+    /// Used by DNG to match the "baseline" look. None for standard ARW.
+    pub baseline_exposure: Option<f32>,
+    /// Default crop rectangle.
+    /// Used by DNG to define the final image composition area. None for standard ARW.
+    pub default_crop: Option<Rect>,
 }
 
 impl RgbImage {
@@ -204,6 +218,8 @@ impl RgbImage {
             width,
             height,
             data,
+            baseline_exposure: None,
+            default_crop: None,
         }
     }
 }

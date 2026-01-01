@@ -372,7 +372,11 @@ impl<R: Read + Seek> TiffParser<R> {
                     match self.parse_ifd_at(sub_offset) {
                         Ok(sub_ifd) => ifd.sub_ifds.push(sub_ifd),
                         Err(e) => {
-                            log::warn!("Failed to parse SubIFD at offset {}: {}", sub_offset, e);
+                            tracing::warn!(
+                                "Failed to parse SubIFD at offset {}: {}",
+                                sub_offset,
+                                e
+                            );
                         }
                     }
                 }
@@ -386,7 +390,11 @@ impl<R: Read + Seek> TiffParser<R> {
                     match self.parse_ifd_at(exif_offset) {
                         Ok(exif_ifd) => ifd.exif_ifd = Some(Box::new(exif_ifd)),
                         Err(e) => {
-                            log::warn!("Failed to parse EXIF IFD at offset {}: {}", exif_offset, e);
+                            tracing::warn!(
+                                "Failed to parse EXIF IFD at offset {}: {}",
+                                exif_offset,
+                                e
+                            );
                         }
                     }
                 }
@@ -477,9 +485,15 @@ impl<R: Read + Seek> TiffParser<R> {
             TiffType::Byte => {
                 let mut data = vec![0u8; count];
                 if is_inline {
-                    // Extract from value_offset bytes
-                    let bytes = entry.value_offset.to_le_bytes();
-                    data.copy_from_slice(&bytes[..count.min(8)]);
+                    // For inline BYTE values, extract raw bytes from value_offset.
+                    // Cast to u32 first (for non-BigTIFF), then convert to bytes in file order.
+                    let value32 = entry.value_offset as u32;
+                    let bytes = match self.header.byte_order {
+                        ByteOrder::LittleEndian => value32.to_le_bytes(),
+                        ByteOrder::BigEndian => value32.to_be_bytes(),
+                    };
+                    let copy_count = count.min(4);
+                    data[..copy_count].copy_from_slice(&bytes[..copy_count]);
                 } else {
                     self.reader.read_exact(&mut data)?;
                 }
@@ -488,8 +502,13 @@ impl<R: Read + Seek> TiffParser<R> {
             TiffType::Ascii => {
                 let mut data = vec![0u8; count];
                 if is_inline {
-                    let bytes = entry.value_offset.to_le_bytes();
-                    data.copy_from_slice(&bytes[..count.min(8)]);
+                    let value32 = entry.value_offset as u32;
+                    let bytes = match self.header.byte_order {
+                        ByteOrder::LittleEndian => value32.to_le_bytes(),
+                        ByteOrder::BigEndian => value32.to_be_bytes(),
+                    };
+                    let copy_count = count.min(4);
+                    data[..copy_count].copy_from_slice(&bytes[..copy_count]);
                 } else {
                     self.reader.read_exact(&mut data)?;
                 }
@@ -503,10 +522,32 @@ impl<R: Read + Seek> TiffParser<R> {
             TiffType::Short => {
                 let mut values = Vec::with_capacity(count);
                 if is_inline {
-                    let bytes = entry.value_offset.to_le_bytes();
+                    // For inline values, value_offset contains the value from the 4-byte field.
+                    // For non-BigTIFF, value_offset was a u32 extended to u64.
+                    //
+                    // To get the original bytes as they appeared in the file:
+                    // - For LE file: value_offset holds the numeric value, to_le_bytes() gives original order
+                    // - For BE file: value_offset was read as BE u32, so value is shifted.
+                    //   Example: bytes [0x88, 0x4C, 0x00, 0x00] read as BE u32 = 0x884C0000
+                    //   We need to recover the original 4 bytes to extract the SHORT.
+                    //
+                    // We use to_ne_bytes() and then reorder based on file byte order:
+                    // - For non-BigTIFF, the 4-byte value fits in lower 32 bits
+                    // - Cast to u32 first to get just the original 4-byte portion
+                    let value32 = entry.value_offset as u32;
+                    let bytes = match self.header.byte_order {
+                        ByteOrder::LittleEndian => {
+                            // LE: lower byte first, so to_le_bytes gives file order
+                            value32.to_le_bytes()
+                        }
+                        ByteOrder::BigEndian => {
+                            // BE: value was read as BE, so 0x884C0000 needs to become [0x88, 0x4C, 0x00, 0x00]
+                            value32.to_be_bytes()
+                        }
+                    };
                     for i in 0..count {
                         let idx = i * 2;
-                        if idx + 1 < 8 {
+                        if idx + 1 < 4 {
                             let v = match self.header.byte_order {
                                 ByteOrder::LittleEndian => {
                                     u16::from_le_bytes([bytes[idx], bytes[idx + 1]])

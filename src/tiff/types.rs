@@ -280,6 +280,16 @@ impl TiffValue {
         }
     }
 
+    /// Get the first element as u32, useful for array tags like BitsPerSample.
+    pub fn first_u32(&self) -> Option<u32> {
+        match self {
+            TiffValue::Bytes(v) if !v.is_empty() => Some(v[0] as u32),
+            TiffValue::Shorts(v) if !v.is_empty() => Some(v[0] as u32),
+            TiffValue::Longs(v) if !v.is_empty() => Some(v[0]),
+            _ => None,
+        }
+    }
+
     /// Get as a Vec<u32>, coercing numeric types if possible.
     pub fn as_u32_vec(&self) -> Option<Vec<u32>> {
         match self {
@@ -297,6 +307,32 @@ impl TiffValue {
             TiffValue::Shorts(v) if v.len() == 1 => Some(v[0] as u64),
             TiffValue::Longs(v) if v.len() == 1 => Some(v[0] as u64),
             TiffValue::Long8s(v) if v.len() == 1 => Some(v[0]),
+            _ => None,
+        }
+    }
+
+    /// Get as a Vec<u64>, coercing numeric types if possible.
+    pub fn as_u64_vec(&self) -> Option<Vec<u64>> {
+        match self {
+            TiffValue::Bytes(v) => Some(v.iter().map(|&x| x as u64).collect()),
+            TiffValue::Shorts(v) => Some(v.iter().map(|&x| x as u64).collect()),
+            TiffValue::Longs(v) => Some(v.iter().map(|&x| x as u64).collect()),
+            TiffValue::Long8s(v) => Some(v.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get as a Vec<f64>, coercing numeric types if possible.
+    /// Supports Rationals, SRationals, Floats, Doubles, and integer types.
+    pub fn as_f64_vec(&self) -> Option<Vec<f64>> {
+        match self {
+            TiffValue::Bytes(v) => Some(v.iter().map(|&x| x as f64).collect()),
+            TiffValue::Shorts(v) => Some(v.iter().map(|&x| x as f64).collect()),
+            TiffValue::Longs(v) => Some(v.iter().map(|&x| x as f64).collect()),
+            TiffValue::Rationals(v) => Some(v.iter().map(|r| r.to_f64()).collect()),
+            TiffValue::SRationals(v) => Some(v.iter().map(|r| r.to_f64()).collect()),
+            TiffValue::Floats(v) => Some(v.iter().map(|&x| x as f64).collect()),
+            TiffValue::Doubles(v) => Some(v.clone()),
             _ => None,
         }
     }

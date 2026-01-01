@@ -9,7 +9,7 @@ use crate::processing::demosaic::DemosaicMethod;
 /// 2. White Balance
 /// 3. Color Matrix
 /// 4. Gamma Correction
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ProcessingOptions {
     /// The demosaicing method to use.
     pub demosaic: DemosaicMethod,

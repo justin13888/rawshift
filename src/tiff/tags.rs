@@ -163,6 +163,24 @@ pub enum TiffTag {
     OpcodeList2 = 0xC741,
     /// Opcode list 3 (0xC74E)
     OpcodeList3 = 0xC74E,
+    /// Calibration illuminant 1 (0xC65A)
+    CalibrationIlluminant1 = 0xC65A,
+    /// Calibration illuminant 2 (0xC65B)
+    CalibrationIlluminant2 = 0xC65B,
+    /// Noise profile (0xC761)
+    NoiseProfile = 0xC761,
+    /// Noise reduction applied (0xC7A5)
+    NoiseReductionApplied = 0xC7A5,
+    /// Default black render (0xC7A6)
+    DefaultBlackRender = 0xC7A6,
+    /// Profile name (0xC6F8)
+    ProfileName = 0xC6F8,
+    /// Profile tone curve (0xC6FC)
+    ProfileToneCurve = 0xC6FC,
+    /// Profile gain table map (0xCD40)
+    ProfileGainTableMap = 0xCD40,
+    /// Semantic name (0xCD31)
+    SemanticName = 0xCD31,
     /// New subfile type (0x00FE)
     NewSubfileType = 0x00FE,
 
@@ -272,6 +290,15 @@ impl TiffTag {
             0xC740 => Some(TiffTag::OpcodeList1),
             0xC741 => Some(TiffTag::OpcodeList2),
             0xC74E => Some(TiffTag::OpcodeList3),
+            0xC65A => Some(TiffTag::CalibrationIlluminant1),
+            0xC65B => Some(TiffTag::CalibrationIlluminant2),
+            0xC761 => Some(TiffTag::NoiseProfile),
+            0xC7A5 => Some(TiffTag::NoiseReductionApplied),
+            0xC7A6 => Some(TiffTag::DefaultBlackRender),
+            0xC6F8 => Some(TiffTag::ProfileName),
+            0xC6FC => Some(TiffTag::ProfileToneCurve),
+            0xCD40 => Some(TiffTag::ProfileGainTableMap),
+            0xCD31 => Some(TiffTag::SemanticName),
             0xC4B5 => Some(TiffTag::PrintImageMatching),
             _ => None,
         }
@@ -353,6 +380,15 @@ impl TiffTag {
             TiffTag::OpcodeList1 => "OpcodeList1",
             TiffTag::OpcodeList2 => "OpcodeList2",
             TiffTag::OpcodeList3 => "OpcodeList3",
+            TiffTag::CalibrationIlluminant1 => "CalibrationIlluminant1",
+            TiffTag::CalibrationIlluminant2 => "CalibrationIlluminant2",
+            TiffTag::NoiseProfile => "NoiseProfile",
+            TiffTag::NoiseReductionApplied => "NoiseReductionApplied",
+            TiffTag::DefaultBlackRender => "DefaultBlackRender",
+            TiffTag::ProfileName => "ProfileName",
+            TiffTag::ProfileToneCurve => "ProfileToneCurve",
+            TiffTag::ProfileGainTableMap => "ProfileGainTableMap",
+            TiffTag::SemanticName => "SemanticName",
             TiffTag::SonyRawFileType => "SonyRawFileType",
             TiffTag::SonyToneCurve => "SonyToneCurve",
             TiffTag::SonyCropTopLeft => "SonyCropTopLeft",
@@ -396,6 +432,8 @@ pub enum CompressionType {
     SonyArwCompressed = 32767,
     /// Lossy JPEG (34892, used in DNG)
     LossyJpeg = 34892,
+    /// JPEG XL (52546, DNG 1.7+)
+    JpegXL = 52546,
 }
 
 impl CompressionType {
@@ -412,6 +450,7 @@ impl CompressionType {
             32773 => Some(CompressionType::PackBits),
             32767 => Some(CompressionType::SonyArwCompressed),
             34892 => Some(CompressionType::LossyJpeg),
+            52546 => Some(CompressionType::JpegXL),
             _ => None,
         }
     }

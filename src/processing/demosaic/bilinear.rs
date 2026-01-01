@@ -234,6 +234,8 @@ mod tests {
             black_levels: [0; 4],
             white_level: 16383,
             data: vec![value; pixel_count],
+            baseline_exposure: None,
+            default_crop: None,
         }
     }
 
