@@ -15,9 +15,21 @@ zune-image = "0.4"
 jxl-oxide = "0.10"
 tracing = { version = "0.1.44", features = ["release_max_level_debug"] }
 
+# Metadata encoding
+jpeg-encoder = "0.6"
+img-parts = "0.4"
+little_exif = "0.6"
+image-webp = "0.2"
+
+# Optional encoding backends
+ravif = { version = "0.12", optional = true }
+zune-jpegxl = { version = "0.4", optional = true }
 
 [features]
 serde = ["dep:serde"]
+avif = ["ravif"]
+jxl-encode = ["zune-jpegxl"]
+heic = []
 # SIMD enables CPU-specific optimizations
 # simd = []
 

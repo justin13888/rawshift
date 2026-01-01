@@ -311,11 +311,100 @@ impl<R: Read + Seek> RawFile<R> {
                 use std::io::Write;
                 file.write_all(&encoded_data)?;
             }
-            export::EncodeOptions::Jpeg(_) => unimplemented!("JPEG encoding not yet implemented"),
+            export::EncodeOptions::Jpeg(opts) => {
+                use crate::metadata::exif::ExifBuilder;
+                use crate::metadata::icc::IccProfile;
+                use jpeg_encoder::{ColorType, Encoder};
+
+                // Convert 16-bit to 8-bit for JPEG
+                let mut data_8bit = Vec::with_capacity(rgb_image.data.len());
+                for &pixel in &rgb_image.data {
+                    data_8bit.push((pixel >> 8) as u8);
+                }
+
+                // Encode JPEG
+                let quality = if opts.quality == 0 { 90 } else { opts.quality };
+                let encoder = Encoder::new_file(path.as_ref(), quality)?;
+                encoder.encode(
+                    &data_8bit,
+                    rgb_image.width as u16,
+                    rgb_image.height as u16,
+                    ColorType::Rgb,
+                )?;
+
+                // Read back the JPEG for metadata embedding
+                if opts.embed_exif || opts.embed_icc {
+                    let mut jpeg_data = std::fs::read(path.as_ref())?;
+
+                    // Embed EXIF
+                    if opts.embed_exif {
+                        let metadata = self.metadata();
+                        let exif_builder = ExifBuilder::new(&metadata);
+                        match exif_builder.append_to_jpeg(jpeg_data.clone()) {
+                            Ok(data) => jpeg_data = data,
+                            Err(e) => tracing::warn!("Failed to embed EXIF: {}", e),
+                        }
+                    }
+
+                    // Embed ICC profile
+                    if opts.embed_icc {
+                        let icc = IccProfile::srgb();
+                        match icc.append_to_jpeg(jpeg_data.clone()) {
+                            Ok(data) => jpeg_data = data,
+                            Err(e) => tracing::warn!("Failed to embed ICC: {}", e),
+                        }
+                    }
+
+                    // Write final file
+                    std::fs::write(path.as_ref(), jpeg_data)?;
+                }
+            }
+            export::EncodeOptions::WebP(opts) => {
+                use crate::metadata::exif::ExifBuilder;
+                use image_webp::WebPEncoder;
+
+                // Convert 16-bit to 8-bit for WebP
+                let mut data_8bit = Vec::with_capacity(rgb_image.data.len());
+                for &pixel in &rgb_image.data {
+                    data_8bit.push((pixel >> 8) as u8);
+                }
+
+                // Encode WebP (lossless only for now with image-webp)
+                let mut output = Vec::new();
+                let encoder = WebPEncoder::new(&mut output);
+                encoder.encode(
+                    &data_8bit,
+                    rgb_image.width,
+                    rgb_image.height,
+                    image_webp::ColorType::Rgb8,
+                )?;
+
+                // Embed metadata if requested
+                if opts.embed_exif || opts.embed_icc {
+                    // Embed EXIF
+                    if opts.embed_exif {
+                        let metadata = self.metadata();
+                        let exif_builder = ExifBuilder::new(&metadata);
+                        match exif_builder.append_to_webp(output.clone()) {
+                            Ok(data) => output = data,
+                            Err(e) => tracing::warn!("Failed to embed EXIF in WebP: {}", e),
+                        }
+                    }
+
+                    // Note: ICC for WebP requires different handling via ICCP chunk
+                    // img-parts doesn't support WebP ICC directly, so we skip for now
+                    if opts.embed_icc {
+                        tracing::debug!("ICC profile embedding in WebP not yet supported");
+                    }
+                }
+
+                // Write to file
+                std::fs::write(path.as_ref(), output)?;
+            }
             export::EncodeOptions::Avif(_) => unimplemented!("AVIF encoding not yet implemented"),
+            #[cfg(feature = "heic")]
             export::EncodeOptions::Heic(_) => unimplemented!("HEIC encoding not yet implemented"),
             export::EncodeOptions::Jxl(_) => unimplemented!("JXL encoding not yet implemented"),
-            export::EncodeOptions::WebP(_) => unimplemented!("WebP encoding not yet implemented"),
             export::EncodeOptions::Tiff(_) => unimplemented!("TIFF encoding not yet implemented"),
             export::EncodeOptions::Dng(config) => {
                 export_dng(path.as_ref(), &rgb_image, &self.metadata(), config)?;

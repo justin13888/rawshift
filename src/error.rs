@@ -139,6 +139,18 @@ impl From<binrw::Error> for RawError {
     }
 }
 
+impl From<jpeg_encoder::EncodingError> for RawError {
+    fn from(err: jpeg_encoder::EncodingError) -> Self {
+        RawError::ParseError(format!("JPEG encoding error: {}", err))
+    }
+}
+
+impl From<image_webp::EncodingError> for RawError {
+    fn from(err: image_webp::EncodingError) -> Self {
+        RawError::ParseError(format!("WebP encoding error: {:?}", err))
+    }
+}
+
 impl From<zune_image::errors::ImageErrors> for RawError {
     fn from(err: zune_image::errors::ImageErrors) -> Self {
         use zune_image::errors::ImageErrors;

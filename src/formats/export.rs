@@ -10,6 +10,7 @@ pub enum EncodeOptions {
     /// AVIF format options
     Avif(AvifOptions),
     /// HEIC format options
+    #[cfg(feature = "heic")]
     Heic(HeicOptions),
     /// JPEG XL format options
     Jxl(JxlOptions),
@@ -34,6 +35,7 @@ impl EncodeOptions {
         Self::Avif(AvifOptions::default())
     }
 
+    #[cfg(feature = "heic")]
     pub fn heic() -> Self {
         Self::Heic(HeicOptions::default())
     }
@@ -71,22 +73,49 @@ impl Default for PngOptions {
 }
 
 /// Options for JPEG encoding.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct JpegOptions {
     /// Quality (1-100). Default: 90
     pub quality: u8,
+    /// Whether to embed EXIF metadata. Default: true
+    pub embed_exif: bool,
+    /// Whether to embed ICC profile. Default: true
+    pub embed_icc: bool,
+}
+
+impl Default for JpegOptions {
+    fn default() -> Self {
+        Self {
+            quality: 90,
+            embed_exif: true,
+            embed_icc: true,
+        }
+    }
 }
 
 /// Options for AVIF encoding.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AvifOptions {
     /// Quality (1-100). Default: 80
     pub quality: u8,
     /// Speed (0-10). Default: 6
     pub speed: u8,
+    /// Whether to embed EXIF metadata. Default: true
+    pub embed_exif: bool,
+}
+
+impl Default for AvifOptions {
+    fn default() -> Self {
+        Self {
+            quality: 80,
+            speed: 6,
+            embed_exif: true,
+        }
+    }
 }
 
 /// Options for HEIC encoding.
+#[cfg(feature = "heic")]
 #[derive(Debug, Clone, Default)]
 pub struct HeicOptions {
     /// Quality (1-100). Default: 80
@@ -103,12 +132,27 @@ pub struct JxlOptions {
 }
 
 /// Options for WebP encoding.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WebPOptions {
     /// Quality (1-100). Default: 80
     pub quality: f32,
     /// Lossless mode. Default: true
     pub lossless: bool,
+    /// Whether to embed EXIF metadata. Default: true
+    pub embed_exif: bool,
+    /// Whether to embed ICC profile. Default: true
+    pub embed_icc: bool,
+}
+
+impl Default for WebPOptions {
+    fn default() -> Self {
+        Self {
+            quality: 80.0,
+            lossless: true,
+            embed_exif: true,
+            embed_icc: true,
+        }
+    }
 }
 
 /// Options for TIFF encoding.

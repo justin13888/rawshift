@@ -76,6 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("jpg") => EncodeOptions::jpeg(),
         Some("jpeg") => EncodeOptions::jpeg(),
         Some("avif") => EncodeOptions::avif(),
+        #[cfg(feature = "heic")]
         Some("heic") => EncodeOptions::heic(),
         Some("jxl") => EncodeOptions::jxl(),
         Some("webp") => EncodeOptions::webp(),

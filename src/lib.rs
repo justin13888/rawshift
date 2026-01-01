@@ -3,6 +3,7 @@ pub mod core;
 pub mod data;
 pub mod error;
 pub mod formats;
+pub mod metadata;
 pub mod processing;
 pub mod tiff;
 pub mod transforms;
