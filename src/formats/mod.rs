@@ -107,24 +107,35 @@ impl<R: Read + Seek> RawFile<R> {
             
             let metadata = dng.metadata();
             let bit_depth = metadata.map(|m| m.bit_depth).unwrap_or(16);
-            let has_linearization_table = metadata
-                .and_then(|m| m.linearization_table.as_ref())
-                .map(|t| !t.is_empty())
-                .unwrap_or(false);
+            let linearization_table = metadata.and_then(|m| m.linearization_table.as_ref());
+            
+            // Determine if the data is already scaled to 16-bit based on LinearizationTable
+            let is_scaled_by_table = if let Some(table) = linearization_table {
+                if !table.is_empty() {
+                    // Check the maximum value in the table.
+                    // If it exceeds 12-bit range (4095), we assume it targets 16-bit.
+                    // (Standard DNG linearization usually targets 16-bit 65535).
+                    let max_val = table.iter().max().copied().unwrap_or(0);
+                    tracing::trace!("LinearizationTable present. Max value: {}", max_val);
+                    max_val > 4095
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             
             let mut image = dng.decode_linear_raw()?;
 
             // Normalize to 16-bit
-            // If linearization table is applied, values are already mapped (likely to 16-bit).
-            // So we skip shifting if a table was present.
-            let shift = if has_linearization_table {
+            let shift = if is_scaled_by_table {
                 0
             } else {
                 16u8.saturating_sub(bit_depth)
             };
 
             if shift > 0 {
-                tracing::debug!("Scaling {}-bit linear data to 16-bit", bit_depth);
+                tracing::debug!("Scaling {}-bit linear data to 16-bit (shift: {})", bit_depth, shift);
                 for pixel in &mut image.data {
                     let val = (*pixel as u32) << shift;
                     *pixel = val.min(65535) as u16;
@@ -207,8 +218,23 @@ impl<R: Read + Seek> RawFile<R> {
         }
 
         // White Balance
-        if let Some(coeffs) = processing_options.white_balance {
-            tracing::trace!("Applying white balance");
+        // If not specified, try to derive from metadata (AsShotNeutral)
+        let wb_coeffs = processing_options.white_balance.or_else(|| {
+            let meta = self.metadata();
+            if let Some(neutral) = meta.dng_color.as_shot_neutral {
+                // AsShotNeutral is the neutral color in linear space (e.g. 0.47, 1.0, 0.65)
+                // Multipliers are 1/x normalized to Green=1.0 usually, or just 1/x.
+                // We'll just use 1/x.
+                if neutral[0] > 0.0 && neutral[1] > 0.0 && neutral[2] > 0.0 {
+                     tracing::trace!("Using AsShotNeutral from metadata: {:?}", neutral);
+                     return Some((1.0 / neutral[0] as f32, 1.0 / neutral[1] as f32, 1.0 / neutral[2] as f32));
+                }
+            }
+            None
+        });
+
+        if let Some(coeffs) = wb_coeffs {
+            tracing::trace!("Applying white balance: {:?}", coeffs);
             apply_white_balance(&mut rgb_image, coeffs);
         }
 
@@ -219,9 +245,12 @@ impl<R: Read + Seek> RawFile<R> {
         }
 
         // Gamma Correction
-        if let Some(gamma) = processing_options.gamma {
-            tracing::trace!("Applying gamma");
-            apply_gamma(&mut rgb_image, gamma);
+        // Default to sRGB (2.2) if not specified, especially for display formats like PNG
+        let gamma = processing_options.gamma.or(Some(2.2)); // TODO: See if this is correct
+        
+        if let Some(g) = gamma {
+            tracing::trace!("Applying gamma: {}", g);
+            apply_gamma(&mut rgb_image, g);
         }
 
         // 3. Save to Disk

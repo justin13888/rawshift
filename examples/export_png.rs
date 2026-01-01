@@ -26,6 +26,9 @@ fn main() {
 
     let mut raw = RawFile::open(reader).expect("Failed to open image");
     println!("Opened image");
+    // let meta = raw.metadata();
+    // println!("Metadata: BitDepth={}", meta.image.bit_depth);
+
     raw.export(
         &output_path,
         &ProcessingOptions::default(),
