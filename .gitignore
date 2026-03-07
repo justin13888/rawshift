@@ -11,3 +11,13 @@ test_fixtures/
 *.avif
 *.jxl
 *.dng
+
+# Sidecar
+.todos/
+.sidecar/
+.sidecar-agent
+.sidecar-task
+.sidecar-pr
+.sidecar-start.sh
+.sidecar-base
+.td-root
