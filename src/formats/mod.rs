@@ -13,7 +13,7 @@ pub use dng_export::{export_dng, DngExportConfig};
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::error::{RawError, RawResult};
-use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance, clamp_u16};
+use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance};
 use crate::processing::ProcessingOptions;
 use crate::tiff::{TiffParser, TiffTag};
 use export::EncodeOptions;
@@ -186,22 +186,25 @@ impl<R: Read + Seek> RawFile<R> {
         // 2. Shared Post-Processing Pipeline
         tracing::trace!("Applying post-processing");
 
-        // Apply Baseline Exposure
+        // Baseline Exposure: stored as metadata but NOT applied as a simple linear gain.
+        //
+        // The DNG spec's BaselineExposure indicates how much to adjust exposure to match
+        // the camera's intended rendering. Negative values (e.g. -0.83 for iPhone ProRAW)
+        // mean the camera captured with extra highlight headroom.
+        //
+        // In a full DNG renderer (e.g. Adobe Camera Raw), BaselineExposure is applied
+        // alongside a sophisticated tone curve that remaps the compressed range back to
+        // full output. Without that tone mapping, applying it as a raw pixel multiply
+        // just darkens the image (e.g. max output = 199/255 instead of 255/255).
+        //
+        // For our simple gamma-only pipeline, skipping BaselineExposure produces a
+        // correctly-exposed result. The value remains available in metadata for advanced
+        // users or future tone mapping support.
         if let Some(exposure) = rgb_image.baseline_exposure {
-            // Exposure adjustment in EV. Gain = 2^exposure.
-            // Negative exposure (e.g. -0.8) means we need to apply gain < 1.0 (darken)?
-            // Or usually BaselineExposure is a correction factor to applied:
-            // "adjustment ... to match the baseline exposure".
-            // Typically means multiplying the linear values by 2^exposure.
-            let gain = 2.0f32.powf(exposure);
-            tracing::trace!(
-                "Applying baseline exposure gain: {:.4} (EV: {:.2})",
-                gain,
-                exposure
+            tracing::debug!(
+                "BaselineExposure={:.2} EV (not applied - requires tone mapping pipeline)",
+                exposure,
             );
-            for pixel in &mut rgb_image.data {
-                *pixel = clamp_u16(*pixel as f32 * gain);
-            }
         }
 
         // Apply Crop
