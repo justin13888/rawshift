@@ -89,6 +89,8 @@ pub enum TiffTag {
     ExifIFDPointer = 0x8769,
     /// Pointer to GPS IFD (0x8825)
     GPSInfoIFDPointer = 0x8825,
+    /// MakerNote (0x927C)
+    MakerNote = 0x927C,
     /// Print Image Matching data (0xC4B5)
     PrintImageMatching = 0xC4B5,
 
@@ -300,6 +302,7 @@ impl TiffTag {
             0xCD40 => Some(TiffTag::ProfileGainTableMap),
             0xCD31 => Some(TiffTag::SemanticName),
             0xC4B5 => Some(TiffTag::PrintImageMatching),
+            0x927C => Some(TiffTag::MakerNote),
             _ => None,
         }
     }
@@ -347,6 +350,7 @@ impl TiffTag {
             TiffTag::ReferenceBlackWhite => "ReferenceBlackWhite",
             TiffTag::ExifIFDPointer => "ExifIFDPointer",
             TiffTag::GPSInfoIFDPointer => "GPSInfoIFDPointer",
+            TiffTag::MakerNote => "MakerNote",
             TiffTag::PrintImageMatching => "PrintImageMatching",
             TiffTag::CFARepeatPatternDim => "CFARepeatPatternDim",
             TiffTag::CFAPattern => "CFAPattern",

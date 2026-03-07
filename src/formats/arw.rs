@@ -42,6 +42,8 @@ pub struct ArwMetadata {
     pub tile_offsets: Vec<u64>,
     /// Tile byte counts (empty if strip-based)
     pub tile_byte_counts: Vec<u64>,
+    /// As Shot Neutral (converted from WB multipliers if found)
+    pub as_shot_neutral: Option<[f64; 3]>,
 }
 
 /// Parsed Sony ARW file.
@@ -315,6 +317,216 @@ impl<R: Read + Seek> ArwFile<R> {
             Vec::new()
         };
 
+        // Extract White Balance from MakerNote if possible
+        let mut as_shot_neutral: Option<[f64; 3]> = None;
+
+        // But we need to look in the actual parser for the data
+        // MakerNote is usually in the EXIF IFD
+        let makernote_entry = if let Some(exif_ifd) = &ifd0.exif_ifd {
+            tracing::debug!("Found Exif IFD at offset {}", exif_ifd.offset);
+            exif_ifd.get(TiffTag::MakerNote)
+        } else {
+            // Sometimes directly in IFD0?
+            ifd0.get(TiffTag::MakerNote)
+        };
+
+        if let Some(entry) = makernote_entry
+            && let Ok(value) = self.parser.read_value(entry)
+            && let TiffValue::Undefined(bytes) = value
+        {
+            tracing::debug!("Found Sony MakerNote ({} bytes).", bytes.len());
+
+            use std::io::{Cursor, Read};
+
+            let offset = if bytes.starts_with(b"SONY DSC ") || bytes.starts_with(b"SONY CAM ") {
+                12
+            } else {
+                0
+            };
+
+            if bytes.len() > offset {
+                let mut cursor = Cursor::new(&bytes[offset..]);
+                let mut buf2 = [0u8; 2];
+                if cursor.read_exact(&mut buf2).is_ok() {
+                    let count = u16::from_le_bytes(buf2);
+                    tracing::debug!("Scanning {} MakerNote entries...", count);
+
+                    for _ in 0..count {
+                        // 12 bytes per entry
+                        let mut entry_buf = [0u8; 12];
+                        if cursor.read_exact(&mut entry_buf).is_ok() {
+                            let tag_id = u16::from_le_bytes([entry_buf[0], entry_buf[1]]);
+                            let _type_code = u16::from_le_bytes([entry_buf[2], entry_buf[3]]);
+                            let _count = u32::from_le_bytes([
+                                entry_buf[4],
+                                entry_buf[5],
+                                entry_buf[6],
+                                entry_buf[7],
+                            ]);
+                            let value_offset = u32::from_le_bytes([
+                                entry_buf[8],
+                                entry_buf[9],
+                                entry_buf[10],
+                                entry_buf[11],
+                            ]);
+
+                            tracing::debug!(
+                                "MakerNote Tag: 0x{:04X} Offset: {}",
+                                tag_id,
+                                value_offset
+                            );
+
+                            // Extract data from Tag 0x7313 (WB_RGGBLevels)
+                            // This is the standard Sony WB tag. Values are Multipliers/Gains.
+                            if tag_id == 0x7313 {
+                                let mut v1 = 0;
+                                let mut v2 = 0;
+                                let mut v3 = 0;
+                                let mut v4 = 0;
+
+                                // Try Absolute Offset
+                                let mut found_abs = false;
+                                if self.parser.seek_to(value_offset as u64).is_ok() {
+                                    if let Ok(v) = self.parser.read_bytes(8) {
+                                        v1 = u16::from_le_bytes([v[0], v[1]]);
+                                        v2 = u16::from_le_bytes([v[2], v[3]]);
+                                        v3 = u16::from_le_bytes([v[4], v[5]]);
+                                        v4 = u16::from_le_bytes([v[6], v[7]]);
+                                        if v1 > 0 || v2 > 0 {
+                                            found_abs = true;
+                                        }
+                                    }
+                                }
+
+                                if !found_abs {
+                                    let off = value_offset as usize;
+                                    if off + 8 <= bytes.len() {
+                                        let v = &bytes[off..off + 8];
+                                        v1 = u16::from_le_bytes([v[0], v[1]]);
+                                        v2 = u16::from_le_bytes([v[2], v[3]]);
+                                        v3 = u16::from_le_bytes([v[4], v[5]]);
+                                        v4 = u16::from_le_bytes([v[6], v[7]]);
+                                    }
+                                }
+
+                                if v1 > 0 && v2 > 0 && v3 > 0 && v4 > 0 {
+                                    // RGGB Layout for this tag: R, G, G, B
+                                    // These are GAINS (Multipliers).
+                                    // To convert to AsShotNeutral (Scene Levels), we invert them.
+                                    // AsShotNeutral = [1/Gain_R, 1/Gain_G, 1/Gain_B]
+
+                                    let r_gain = v1 as f64;
+                                    let g_gain = (v2 as f64 + v3 as f64) / 2.0;
+                                    let b_gain = v4 as f64;
+
+                                    // Normalize so Green Neutral = 1.0.
+                                    // Neutral_R = (1/R_Gain) / (1/G_Gain) = G_Gain / R_Gain.
+
+                                    as_shot_neutral = Some([g_gain / r_gain, 1.0, g_gain / b_gain]);
+
+                                    tracing::debug!(
+                                        "Found WB_RGGBLevels (0x7313): Gains=[{}, {}, {}] -> AsShotNeutral={:?}",
+                                        r_gain,
+                                        g_gain,
+                                        b_gain,
+                                        as_shot_neutral
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Warn about unknown tags
+        for (tag, _) in &ifd0.other_tags {
+            tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in IFD0", tag);
+        }
+        if let Some(exif) = &ifd0.exif_ifd {
+            for (tag, _) in &exif.other_tags {
+                // MakerNote is handled, don't warn about it if it ended up here (it shouldn't, as it's known)
+                if *tag != 0x927C {
+                    tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in Exif IFD", tag);
+                }
+            }
+        }
+
+        // Check for Sony SR2 SubIFD (Tag 0x02BC) which often contains the WB data
+        // 0x02BC is usually treated as "Unknown" tag in generic parser, so check other_tags.
+        if let Some(entry) = ifd0.other_tags.get(&0x02BC) {
+            tracing::debug!(
+                "Found Tag 0x02BC (SR2 Offset Candidate). Type={:?} Count={}",
+                entry.tiff_type, entry.count
+            );
+
+            match self.parser.read_value(entry) {
+                Ok(val) => {
+                    tracing::debug!("Read Tag 0x02BC Value: {:?}", val);
+                    let offset_opt = match val {
+                        TiffValue::Longs(ref v) if !v.is_empty() => Some(v[0]),
+                        TiffValue::Shorts(ref v) if !v.is_empty() => Some(v[0] as u32),
+                        _ => None,
+                    };
+
+                    if let Some(offset) = offset_opt {
+                        tracing::debug!("Found Sony SR2 SubIFD at offset {}", offset);
+                        match self.parser.parse_ifd(offset as u64) {
+                            Ok(sr2_ifd) => {
+                                // Check for WB_RGGBLevels (0x7313)
+                                if let Some(wb_entry) = sr2_ifd.other_tags.get(&0x7313) {
+                                    match self.parser.read_value(wb_entry) {
+                                        Ok(TiffValue::Shorts(vals)) if vals.len() >= 4 => {
+                                            let v1 = vals[0];
+                                            let v2 = vals[1];
+                                            let v3 = vals[2];
+                                            let v4 = vals[3];
+
+                                            tracing::debug!("Found WB Levels: {:?}", vals);
+
+                                            if v1 > 0 && v2 > 0 && v3 > 0 && v4 > 0 {
+                                                let r_gain = v1 as f64;
+                                                let g_gain = (v2 as f64 + v3 as f64) / 2.0;
+                                                let b_gain = v4 as f64;
+
+                                                as_shot_neutral =
+                                                    Some([g_gain / r_gain, 1.0, g_gain / b_gain]);
+                                                tracing::debug!(
+                                                    "Found WB_RGGBLevels in SR2: Gains=[{}, {}, {}] -> AsShotNeutral={:?}",
+                                                    r_gain, g_gain, b_gain, as_shot_neutral
+                                                );
+                                            }
+                                        }
+                                        Ok(other_val) => tracing::warn!(
+                                            "WB_RGGBLevels (0x7313) has unexpected value: {:?}",
+                                            other_val
+                                        ),
+                                        Err(e) => tracing::warn!(
+                                            "Failed to read WB_RGGBLevels (0x7313): {}",
+                                            e
+                                        ),
+                                    }
+                                } else {
+                                    tracing::debug!(
+                                        "SR2 SubIFD parsed but WB_RGGBLevels (0x7313) not found"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to parse SR2 SubIFD at {}: {}", offset, e)
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Tag 0x02BC found but value not a valid offset (found {:?})",
+                            val
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!("Failed to read Tag 0x02BC value: {}", e),
+            }
+        }
+
         self.metadata = Some(ArwMetadata {
             make,
             model,
@@ -331,6 +543,7 @@ impl<R: Read + Seek> ArwFile<R> {
             tile_height,
             tile_offsets,
             tile_byte_counts,
+            as_shot_neutral,
         });
 
         Ok(())
@@ -357,6 +570,21 @@ impl<R: Read + Seek> ArwFile<R> {
                 width: metadata.sensor_size.width,
                 height: metadata.sensor_size.height,
             });
+        }
+
+        // Verify Model name (per Sony ARW specs)
+        let model = metadata.model.to_uppercase();
+        if !model.contains("ILCE")
+            && !model.contains("ILCA")
+            && !model.contains("NEX")
+            && !model.contains("SLT")
+            && !model.contains("DSC")
+            && !model.contains("ALPHA")
+        {
+            tracing::warn!(
+                "Model '{}' does not contain standard Sony naming (ILCE, ILCA, etc.)",
+                metadata.model
+            );
         }
 
         // Check for raw data
@@ -491,10 +719,16 @@ impl<R: Read + Seek> ArwFile<R> {
             });
         }
 
-        Err(RawError::UnsupportedFormat(format!(
-            "Compression type {} not yet supported (only JPEG type 7 is supported)",
-            metadata.compression
-        )))
+        // Handle specific compression types
+        match metadata.compression {
+            8 => Err(RawError::UnsupportedFormat(
+                "Sony Compressed (Type 8) not yet supported. Only Uncompressed/LJPEG (Type 7) is supported.".to_string()
+            )),
+            _ => Err(RawError::UnsupportedFormat(format!(
+                "Compression type {} not yet supported (only JPEG type 7 is supported)",
+                metadata.compression
+            ))),
+        }
     }
 }
 
@@ -503,6 +737,7 @@ impl<R: Read + Seek> crate::core::MetadataExtractor for ArwFile<R> {
         use crate::core::metadata::*;
 
         let m = self.metadata.as_ref();
+        let as_shot_neutral = m.and_then(|x| x.as_shot_neutral);
 
         ImageMetadata {
             camera: CameraInfo {
@@ -514,10 +749,13 @@ impl<R: Read + Seek> crate::core::MetadataExtractor for ArwFile<R> {
                 lens_info: None,
                 serial_number: None,
             },
-            exif: ExifInfo::default(),          // TODO: Parse EXIF IFD
-            datetime: DateTimeInfo::default(),  // TODO: Parse EXIF IFD
-            gps: GpsInfo::default(),            // TODO: Parse GPS IFD
-            dng_color: DngColorInfo::default(), // Not applicable to ARW source
+            exif: ExifInfo::default(),         // TODO: Parse EXIF IFD
+            datetime: DateTimeInfo::default(), // TODO: Parse EXIF IFD
+            gps: GpsInfo::default(),           // TODO: Parse GPS IFD
+            dng_color: DngColorInfo {
+                as_shot_neutral,
+                ..DngColorInfo::default()
+            },
             dng_calibration: DngCalibrationInfo::default(),
             dng_profile: DngProfileInfo::default(),
             image: ImageInfo {

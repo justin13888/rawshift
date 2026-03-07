@@ -6,7 +6,7 @@
 //! - SubIFD tree traversal
 //! - Value resolution (inline vs offset)
 
-use binrw::{binread, BinRead, BinReaderExt};
+use binrw::{BinRead, BinReaderExt, binread};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 
@@ -191,21 +191,6 @@ impl IfdEntry {
     }
 }
 
-/// Storage for format-specific/other tags not in TiffTag enum.
-#[derive(Debug, Clone)]
-pub struct OtherTag {
-    /// Raw tag ID
-    pub tag_id: u16,
-    /// Raw type code
-    pub type_code: u16,
-    /// Number of values
-    pub count: u64,
-    /// Raw binary data (if resolved)
-    pub data: Option<Vec<u8>>,
-    /// Offset to data (if not inline)
-    pub offset: Option<u64>,
-}
-
 /// A parsed IFD (Image File Directory).
 #[derive(Debug, Clone)]
 pub struct Ifd {
@@ -214,7 +199,7 @@ pub struct Ifd {
     /// Parsed entries (known tags)
     pub entries: HashMap<TiffTag, IfdEntry>,
     /// Other tags (format-specific, not in TiffTag enum)
-    pub other_tags: HashMap<u16, OtherTag>,
+    pub other_tags: HashMap<u16, IfdEntry>,
     /// Offset to next IFD (0 if none)
     pub next_ifd_offset: u64,
     /// SubIFDs (parsed from SubIFDs tag)
@@ -331,20 +316,8 @@ impl<R: Read + Seek> TiffParser<R> {
             if let Some(tag) = entry.tag {
                 entries.insert(tag, entry);
             } else {
-                // Other tag (format-specific) - store with raw data
-                let is_inline = entry.is_inline(self.header.is_bigtiff);
-                let other = OtherTag {
-                    tag_id: entry.tag_id,
-                    type_code: entry.data_type,
-                    count: entry.count,
-                    data: None,
-                    offset: if is_inline {
-                        None
-                    } else {
-                        Some(entry.value_offset)
-                    },
-                };
-                other_tags.insert(entry.tag_id, other);
+                // Other tag (format-specific) - store as IfdEntry
+                other_tags.insert(entry.tag_id, entry);
             }
         }
 
@@ -462,6 +435,11 @@ impl<R: Read + Seek> TiffParser<R> {
     pub fn parse_ifd0(&mut self) -> RawResult<Ifd> {
         self.visited_offsets.clear();
         self.parse_ifd_at(self.header.ifd0_offset)
+    }
+
+    /// Parse an IFD at a specific offset.
+    pub fn parse_ifd(&mut self, offset: u64) -> RawResult<Ifd> {
+        self.parse_ifd_at(offset)
     }
 
     /// Read the value for an IFD entry.
@@ -839,32 +817,14 @@ impl<R: Read + Seek> TiffParser<R> {
 
     /// Validate a single IFD and its entries.
     fn validate_ifd(&mut self, ifd: &Ifd, file_size: u64) -> RawResult<()> {
-        // Validate each entry's data reference
-        for entry in ifd.entries.values() {
+        // Validate each entry's data reference (both known and other tags)
+        for entry in ifd.entries.values().chain(ifd.other_tags.values()) {
             if !entry.is_inline(self.header.is_bigtiff) {
                 let end = entry.value_offset.saturating_add(entry.value_size());
                 if end > file_size {
                     return Err(RawError::OffsetOutOfBounds {
                         offset: entry.value_offset,
                         size: entry.value_size(),
-                        file_size,
-                    });
-                }
-            }
-        }
-
-        // Validate other tags
-        for other in ifd.other_tags.values() {
-            if let Some(offset) = other.offset {
-                let type_size = TiffType::from_u16(other.type_code)
-                    .map(|t| t.size())
-                    .unwrap_or(1) as u64;
-                let size = other.count.saturating_mul(type_size);
-                let end = offset.saturating_add(size);
-                if end > file_size {
-                    return Err(RawError::OffsetOutOfBounds {
-                        offset,
-                        size,
                         file_size,
                     });
                 }
@@ -1032,7 +992,7 @@ mod tests {
         data.extend_from_slice(b"II");
         data.extend_from_slice(&42u16.to_le_bytes());
         data.extend_from_slice(&8u32.to_le_bytes()); // IFD at offset 8
-                                                     // File ends here - no IFD data
+        // File ends here - no IFD data
 
         let cursor = Cursor::new(data);
         let mut parser = TiffParser::new(cursor).unwrap();
@@ -1052,7 +1012,7 @@ mod tests {
         data.extend_from_slice(&42u16.to_le_bytes());
         data.extend_from_slice(&8u32.to_le_bytes()); // IFD at offset 8
         data.extend_from_slice(&2u16.to_le_bytes()); // 2 entries expected
-                                                     // Only partial first entry (needs 12 bytes per entry)
+        // Only partial first entry (needs 12 bytes per entry)
         data.extend_from_slice(&[0u8; 6]); // Only 6 bytes
 
         let cursor = Cursor::new(data);

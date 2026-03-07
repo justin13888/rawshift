@@ -496,6 +496,14 @@ impl<R: Read + Seek> DngFile<R> {
             baseline_exposure,
         });
 
+        // Warn about unknown tags
+        for (tag, _) in &ifd0.other_tags {
+            tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in IFD0", tag);
+        }
+        for (tag, _) in &raw_ifd.other_tags {
+            tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in Raw IFD", tag);
+        }
+
         Ok(())
     }
 
