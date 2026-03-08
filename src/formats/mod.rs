@@ -336,8 +336,29 @@ impl<R: Read + Seek> RawFile<R> {
             apply_gamma(&mut rgb_image, g);
         }
 
+        // Orientation Transform
+        // Apply orientation correction to produce an upright image.
+        // After applying the transform, the EXIF orientation is set to 1 (Normal)
+        // so that output viewers don't apply it a second time.
+        let raw_orientation = self.metadata().image.orientation.unwrap_or(1);
+        if raw_orientation != 1 {
+            tracing::trace!("Applying orientation transform: {}", raw_orientation);
+            apply_orientation_transform(&mut rgb_image, raw_orientation);
+        }
+
         // 3. Save to Disk
         tracing::info!("Encoding image to disk: {:?}", path.as_ref());
+
+        // Build metadata for EXIF embedding.
+        // If orientation was applied to pixel data, mark the output as orientation=1 (Normal)
+        // so viewers don't apply it a second time.
+        let exif_metadata = {
+            let mut m = self.metadata();
+            if raw_orientation != 1 {
+                m.image.orientation = Some(1);
+            }
+            m
+        };
 
         match encode_options {
             EncodeOptions::Png(opts) => {
@@ -405,8 +426,7 @@ impl<R: Read + Seek> RawFile<R> {
 
                     // Embed EXIF
                     if opts.embed_exif {
-                        let metadata = self.metadata();
-                        let exif_builder = ExifBuilder::new(&metadata);
+                        let exif_builder = ExifBuilder::new(&exif_metadata);
                         match exif_builder.append_to_jpeg(jpeg_data.clone()) {
                             Ok(data) => jpeg_data = data,
                             Err(e) => tracing::warn!("Failed to embed EXIF: {}", e),
@@ -450,8 +470,7 @@ impl<R: Read + Seek> RawFile<R> {
                 if opts.embed_exif || opts.embed_icc {
                     // Embed EXIF
                     if opts.embed_exif {
-                        let metadata = self.metadata();
-                        let exif_builder = ExifBuilder::new(&metadata);
+                        let exif_builder = ExifBuilder::new(&exif_metadata);
                         match exif_builder.append_to_webp(output.clone()) {
                             Ok(data) => output = data,
                             Err(e) => tracing::warn!("Failed to embed EXIF in WebP: {}", e),
@@ -543,15 +562,14 @@ impl<R: Read + Seek> RawFile<R> {
 
                 if opts.embed_exif {
                     use crate::metadata::exif::ExifBuilder;
-                    let metadata = self.metadata();
-                    let exif_builder = ExifBuilder::new(&metadata);
+                    let exif_builder = ExifBuilder::new(&exif_metadata);
                     if let Err(e) = exif_builder.append_to_jxl_file(path.as_ref()) {
                         tracing::warn!("Failed to embed EXIF in JXL: {}", e);
                     }
                 }
             }
             EncodeOptions::Dng(config) => {
-                export_dng(path.as_ref(), &rgb_image, &self.metadata(), config)?;
+                export_dng(path.as_ref(), &rgb_image, &exif_metadata, config)?;
             }
         }
 
@@ -654,6 +672,133 @@ fn cfa_channel_gain(
             _ => g_gain,
         },
     }
+}
+
+/// Apply EXIF orientation transform to an RGB image.
+///
+/// TIFF orientation values encode how the stored image should be rotated/flipped
+/// to produce the correct upright display. This function applies the corresponding
+/// pixel transform so the output is always orientation-1 (Normal/upright).
+///
+/// Orientation values:
+/// - 1: Normal (no transform)
+/// - 2: Mirror horizontal
+/// - 3: Rotate 180°
+/// - 4: Mirror vertical
+/// - 5: Transpose (mirror horizontal + rotate 90° CCW)
+/// - 6: Rotate 90° CW
+/// - 7: Transverse (mirror horizontal + rotate 90° CW)
+/// - 8: Rotate 90° CCW
+fn apply_orientation_transform(image: &mut crate::core::image::RgbImage, orientation: u16) {
+    match orientation {
+        1 => {} // No transform needed
+        2 => flip_horizontal_rgb(image),
+        3 => rotate_180_rgb(image),
+        4 => flip_vertical_rgb(image),
+        5 => {
+            // Transpose = flip horizontal then rotate 90° CCW
+            flip_horizontal_rgb(image);
+            rotate_90_ccw_rgb(image);
+        }
+        6 => rotate_90_cw_rgb(image),
+        7 => {
+            // Transverse = flip horizontal then rotate 90° CW
+            flip_horizontal_rgb(image);
+            rotate_90_cw_rgb(image);
+        }
+        8 => rotate_90_ccw_rgb(image),
+        _ => tracing::warn!("Unknown orientation value: {}, skipping transform", orientation),
+    }
+}
+
+fn flip_horizontal_rgb(image: &mut crate::core::image::RgbImage) {
+    let w = image.width as usize;
+    let h = image.height as usize;
+    for row in 0..h {
+        for col in 0..w / 2 {
+            let a = (row * w + col) * 3;
+            let b = (row * w + (w - 1 - col)) * 3;
+            image.data.swap(a, b);
+            image.data.swap(a + 1, b + 1);
+            image.data.swap(a + 2, b + 2);
+        }
+    }
+}
+
+fn flip_vertical_rgb(image: &mut crate::core::image::RgbImage) {
+    let w = image.width as usize;
+    let h = image.height as usize;
+    for row in 0..h / 2 {
+        for col in 0..w {
+            let a = (row * w + col) * 3;
+            let b = ((h - 1 - row) * w + col) * 3;
+            image.data.swap(a, b);
+            image.data.swap(a + 1, b + 1);
+            image.data.swap(a + 2, b + 2);
+        }
+    }
+}
+
+fn rotate_180_rgb(image: &mut crate::core::image::RgbImage) {
+    let n = image.data.len();
+    // Reverse pixel order in groups of 3
+    let mut i = 0;
+    let mut j = n - 3;
+    while i < j {
+        image.data.swap(i, j);
+        image.data.swap(i + 1, j + 1);
+        image.data.swap(i + 2, j + 2);
+        i += 3;
+        j -= 3;
+    }
+}
+
+/// Rotate 90° CW: new(row_new, col_new) = old(H-1-col_new, row_new)
+/// New dimensions: new_width = old_height, new_height = old_width
+fn rotate_90_cw_rgb(image: &mut crate::core::image::RgbImage) {
+    let old_w = image.width as usize;
+    let old_h = image.height as usize;
+    let new_w = old_h;
+    let new_h = old_w;
+    let mut new_data = vec![0u16; new_w * new_h * 3];
+    for old_row in 0..old_h {
+        for old_col in 0..old_w {
+            let new_row = old_col;
+            let new_col = old_h - 1 - old_row;
+            let src = (old_row * old_w + old_col) * 3;
+            let dst = (new_row * new_w + new_col) * 3;
+            new_data[dst] = image.data[src];
+            new_data[dst + 1] = image.data[src + 1];
+            new_data[dst + 2] = image.data[src + 2];
+        }
+    }
+    image.data = new_data;
+    image.width = new_w as u32;
+    image.height = new_h as u32;
+}
+
+/// Rotate 90° CCW: new(row_new, col_new) = old(col_new, W-1-row_new)
+/// New dimensions: new_width = old_height, new_height = old_width
+fn rotate_90_ccw_rgb(image: &mut crate::core::image::RgbImage) {
+    let old_w = image.width as usize;
+    let old_h = image.height as usize;
+    let new_w = old_h;
+    let new_h = old_w;
+    let mut new_data = vec![0u16; new_w * new_h * 3];
+    for old_row in 0..old_h {
+        for old_col in 0..old_w {
+            let new_row = old_w - 1 - old_col;
+            let new_col = old_row;
+            let src = (old_row * old_w + old_col) * 3;
+            let dst = (new_row * new_w + new_col) * 3;
+            new_data[dst] = image.data[src];
+            new_data[dst + 1] = image.data[src + 1];
+            new_data[dst + 2] = image.data[src + 2];
+        }
+    }
+    image.data = new_data;
+    image.width = new_w as u32;
+    image.height = new_h as u32;
 }
 
 #[cfg(test)]
@@ -921,5 +1066,76 @@ mod tests {
         let mut cursor = Cursor::new(data);
         let result = RawFile::detect_format(&mut cursor);
         assert!(matches!(result, Ok(RawFormat::Dng)));
+    }
+
+    // -------------------------------------------------------------------------
+    // Tests for orientation transforms
+    // -------------------------------------------------------------------------
+
+    fn make_test_rgb(width: u32, height: u32, data: Vec<u16>) -> crate::core::image::RgbImage {
+        crate::core::image::RgbImage::new(width, height, data)
+    }
+
+    #[test]
+    fn test_flip_horizontal_2x1() {
+        // 2 pixels wide, 1 pixel tall: [R1,G1,B1, R2,G2,B2]
+        let mut img = make_test_rgb(2, 1, vec![10, 11, 12, 20, 21, 22]);
+        flip_horizontal_rgb(&mut img);
+        assert_eq!(img.data, vec![20, 21, 22, 10, 11, 12]);
+    }
+
+    #[test]
+    fn test_rotate_180() {
+        // 2x1: [P1, P2] → [P2, P1]
+        let mut img = make_test_rgb(2, 1, vec![1, 2, 3, 4, 5, 6]);
+        rotate_180_rgb(&mut img);
+        assert_eq!(img.data, vec![4, 5, 6, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_rotate_90_cw_1x2() {
+        // 1 wide, 2 tall → 2 wide, 1 tall
+        // Original: col=0, row=0 → pixel A; col=0, row=1 → pixel B
+        // After 90° CW: row=0 → [B, A]
+        let mut img = make_test_rgb(1, 2, vec![1, 2, 3, 4, 5, 6]);
+        rotate_90_cw_rgb(&mut img);
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 1);
+        // new(0,0) = old(H-1-0, 0) = old(1,0) = [4,5,6]
+        // new(0,1) = old(H-1-1, 0) = old(0,0) = [1,2,3]
+        assert_eq!(img.data, vec![4, 5, 6, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_rotate_90_ccw_2x1() {
+        // 2 wide, 1 tall → 1 wide, 2 tall
+        let mut img = make_test_rgb(2, 1, vec![1, 2, 3, 4, 5, 6]);
+        rotate_90_ccw_rgb(&mut img);
+        assert_eq!(img.width, 1);
+        assert_eq!(img.height, 2);
+        // new(0,0) = old(0, W-1-0) = old(0,1) = [4,5,6]
+        // new(1,0) = old(0, W-1-1) = old(0,0) = [1,2,3]
+        assert_eq!(img.data, vec![4, 5, 6, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_orientation_identity() {
+        let mut img = make_test_rgb(2, 2, vec![1,2,3, 4,5,6, 7,8,9, 10,11,12]);
+        let original = img.data.clone();
+        apply_orientation_transform(&mut img, 1);
+        assert_eq!(img.data, original);
+    }
+
+    #[test]
+    fn test_orientation_6_cw_then_ccw_is_identity() {
+        let mut img = make_test_rgb(3, 2, vec![1,2,3, 4,5,6, 7,8,9, 10,11,12, 13,14,15, 16,17,18]);
+        let original_data = img.data.clone();
+        let original_w = img.width;
+        let original_h = img.height;
+        apply_orientation_transform(&mut img, 6); // 90° CW
+        apply_orientation_transform(&mut img, 8); // 90° CCW (should undo it)
+        assert_eq!(img.width, original_w);
+        assert_eq!(img.height, original_h);
+        assert_eq!(img.data, original_data);
     }
 }
