@@ -196,7 +196,8 @@ impl<R: Read + Seek> RawFile<R> {
             // causes near-white pixels to clip to 65535, producing pink/cyan highlights.
             // Applying WB at native bit depth and clamping to the sensor white level ensures
             // only genuinely saturated pixels clip to white.
-            let effective_white = raw_image.white_level.saturating_sub(black_level);
+            // Use first-channel black level as representative value (equal across channels for most cameras)
+            let effective_white = raw_image.white_level.saturating_sub(bl[0]);
             if let Some((r_gain, g_gain, b_gain)) = cfa_wb {
                 let white_f = effective_white as f32;
                 let width = raw_image.size.width as usize;
