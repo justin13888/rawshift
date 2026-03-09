@@ -326,8 +326,7 @@ impl OpcodeList {
         let map_origin_h = Self::read_f64_be(data, 80)?;
         let map_planes = Self::read_u32_be(data, 88)?;
 
-        let gain_count =
-            (map_points_v as usize) * (map_points_h as usize) * (map_planes as usize);
+        let gain_count = (map_points_v as usize) * (map_points_h as usize) * (map_planes as usize);
         let gain_offset = 92;
 
         if gain_offset + gain_count * 4 > data.len() {

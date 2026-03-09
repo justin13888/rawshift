@@ -29,11 +29,7 @@ fn read_u16_tag<R: Read + Seek>(
     }
 }
 
-fn read_u8_tag<R: Read + Seek>(
-    parser: &mut TiffParser<R>,
-    ifd: &Ifd,
-    tag: TiffTag,
-) -> Option<u8> {
+fn read_u8_tag<R: Read + Seek>(parser: &mut TiffParser<R>, ifd: &Ifd, tag: TiffTag) -> Option<u8> {
     let entry = ifd.get(tag)?;
     let value = parser.read_value(entry).ok()?;
     match &value {
@@ -61,9 +57,7 @@ fn read_urational_tag<R: Read + Seek>(
     let entry = ifd.get(tag)?;
     let value = parser.read_value(entry).ok()?;
     match &value {
-        TiffValue::Rationals(v) if !v.is_empty() => {
-            Some((v[0].numerator, v[0].denominator))
-        }
+        TiffValue::Rationals(v) if !v.is_empty() => Some((v[0].numerator, v[0].denominator)),
         _ => None,
     }
 }
@@ -76,9 +70,7 @@ fn read_srational_tag<R: Read + Seek>(
     let entry = ifd.get(tag)?;
     let value = parser.read_value(entry).ok()?;
     match &value {
-        TiffValue::SRationals(v) if !v.is_empty() => {
-            Some((v[0].numerator, v[0].denominator))
-        }
+        TiffValue::SRationals(v) if !v.is_empty() => Some((v[0].numerator, v[0].denominator)),
         _ => None,
     }
 }
@@ -105,10 +97,7 @@ fn read_urational3_tag<R: Read + Seek>(
 // ============================================================================
 
 /// Extract EXIF exposure/capture settings from IFD0 and its EXIF sub-IFD.
-pub fn extract_exif<R: Read + Seek>(
-    parser: &mut TiffParser<R>,
-    ifd0: &Ifd,
-) -> ExifInfo {
+pub fn extract_exif<R: Read + Seek>(parser: &mut TiffParser<R>, ifd0: &Ifd) -> ExifInfo {
     let exif_ifd = match ifd0.exif_ifd.as_deref() {
         Some(ifd) => ifd,
         None => return ExifInfo::default(),
@@ -130,10 +119,7 @@ pub fn extract_exif<R: Read + Seek>(
 }
 
 /// Extract date/time information from IFD0 and its EXIF sub-IFD.
-pub fn extract_datetime<R: Read + Seek>(
-    parser: &mut TiffParser<R>,
-    ifd0: &Ifd,
-) -> DateTimeInfo {
+pub fn extract_datetime<R: Read + Seek>(parser: &mut TiffParser<R>, ifd0: &Ifd) -> DateTimeInfo {
     let modify_date = read_ascii_tag(parser, ifd0, TiffTag::DateTime);
 
     let exif_ifd = ifd0.exif_ifd.as_deref();
@@ -161,10 +147,7 @@ pub fn extract_datetime<R: Read + Seek>(
 }
 
 /// Extract GPS location data from the GPS sub-IFD.
-pub fn extract_gps<R: Read + Seek>(
-    parser: &mut TiffParser<R>,
-    ifd0: &Ifd,
-) -> GpsInfo {
+pub fn extract_gps<R: Read + Seek>(parser: &mut TiffParser<R>, ifd0: &Ifd) -> GpsInfo {
     let gps_ifd = match ifd0.gps_ifd.as_deref() {
         Some(ifd) => ifd,
         None => return GpsInfo::default(),
@@ -203,9 +186,6 @@ pub fn extract_lens_info<R: Read + Seek>(
 }
 
 /// Extract orientation from IFD0.
-pub fn extract_orientation<R: Read + Seek>(
-    parser: &mut TiffParser<R>,
-    ifd0: &Ifd,
-) -> Option<u16> {
+pub fn extract_orientation<R: Read + Seek>(parser: &mut TiffParser<R>, ifd0: &Ifd) -> Option<u16> {
     read_u16_tag(parser, ifd0, TiffTag::Orientation)
 }

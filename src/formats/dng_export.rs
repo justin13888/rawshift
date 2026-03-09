@@ -242,20 +242,30 @@ mod tests {
         let entries = build_dng_ifd(&image, &metadata, &config, 1024, 30000);
 
         // Check required tags are present
-        assert!(entries
-            .iter()
-            .any(|e| e.tag == TiffTag::ImageWidth.as_u16()));
-        assert!(entries
-            .iter()
-            .any(|e| e.tag == TiffTag::ImageLength.as_u16()));
-        assert!(entries
-            .iter()
-            .any(|e| e.tag == TiffTag::DNGVersion.as_u16()));
-        assert!(entries
-            .iter()
-            .any(|e| e.tag == TiffTag::UniqueCameraModel.as_u16()));
-        assert!(entries
-            .iter()
-            .any(|e| e.tag == TiffTag::ColorMatrix1.as_u16()));
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.tag == TiffTag::ImageWidth.as_u16())
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.tag == TiffTag::ImageLength.as_u16())
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.tag == TiffTag::DNGVersion.as_u16())
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.tag == TiffTag::UniqueCameraModel.as_u16())
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.tag == TiffTag::ColorMatrix1.as_u16())
+        );
     }
 }

@@ -77,9 +77,18 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_with_exif.jpg");
 
-        let opts = JpegOptions { quality: 85, embed_exif: true, embed_icc: false };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::Jpeg(opts))
-            .expect("Export JPEG");
+        let opts = JpegOptions {
+            quality: 85,
+            embed_exif: true,
+            embed_icc: false,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::Jpeg(opts),
+        )
+        .expect("Export JPEG");
 
         let data = fs::read(&path).expect("Read JPEG");
         assert_eq!(&data[0..2], &[0xFF, 0xD8], "Should be valid JPEG");
@@ -93,9 +102,18 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_with_icc.jpg");
 
-        let opts = JpegOptions { quality: 85, embed_exif: false, embed_icc: true };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::Jpeg(opts))
-            .expect("Export JPEG");
+        let opts = JpegOptions {
+            quality: 85,
+            embed_exif: false,
+            embed_icc: true,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::Jpeg(opts),
+        )
+        .expect("Export JPEG");
 
         let data = fs::read(&path).expect("Read JPEG");
         assert!(jpeg_has_icc(&data), "JPEG should contain ICC profile");
@@ -108,9 +126,18 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_with_both.jpg");
 
-        let opts = JpegOptions { quality: 90, embed_exif: true, embed_icc: true };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::Jpeg(opts))
-            .expect("Export JPEG");
+        let opts = JpegOptions {
+            quality: 90,
+            embed_exif: true,
+            embed_icc: true,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::Jpeg(opts),
+        )
+        .expect("Export JPEG");
 
         let data = fs::read(&path).expect("Read JPEG");
         assert!(jpeg_has_exif(&data), "JPEG should contain EXIF");
@@ -124,9 +151,18 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_no_meta.jpg");
 
-        let opts = JpegOptions { quality: 85, embed_exif: false, embed_icc: false };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::Jpeg(opts))
-            .expect("Export JPEG");
+        let opts = JpegOptions {
+            quality: 85,
+            embed_exif: false,
+            embed_icc: false,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::Jpeg(opts),
+        )
+        .expect("Export JPEG");
 
         let data = fs::read(&path).expect("Read JPEG");
         assert!(!jpeg_has_exif(&data), "JPEG should NOT contain EXIF");
@@ -140,8 +176,13 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_default.jpg");
 
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::jpeg())
-            .expect("Export JPEG");
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::jpeg(),
+        )
+        .expect("Export JPEG");
 
         let data = fs::read(&path).expect("Read JPEG");
         assert!(jpeg_has_exif(&data), "Default JPEG should contain EXIF");
@@ -156,18 +197,42 @@ mod jpeg_tests {
         let data: Vec<u16> = (0..64 * 64 * 3)
             .map(|i| ((i * 997) % 65536) as u16)
             .collect();
-        let img = RgbImage { width: 64, height: 64, data, baseline_exposure: None, default_crop: None };
+        let img = RgbImage {
+            width: 64,
+            height: 64,
+            data,
+            baseline_exposure: None,
+            default_crop: None,
+        };
 
         let path_low = temp_path("quality_low.jpg");
         let path_high = temp_path("quality_high.jpg");
 
-        let opts_low = JpegOptions { quality: 30, embed_exif: false, embed_icc: false };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path_low, &EncodeOptions::Jpeg(opts_low))
-            .expect("Export low quality");
+        let opts_low = JpegOptions {
+            quality: 30,
+            embed_exif: false,
+            embed_icc: false,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path_low,
+            &EncodeOptions::Jpeg(opts_low),
+        )
+        .expect("Export low quality");
 
-        let opts_high = JpegOptions { quality: 95, embed_exif: false, embed_icc: false };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path_high, &EncodeOptions::Jpeg(opts_high))
-            .expect("Export high quality");
+        let opts_high = JpegOptions {
+            quality: 95,
+            embed_exif: false,
+            embed_icc: false,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path_high,
+            &EncodeOptions::Jpeg(opts_high),
+        )
+        .expect("Export high quality");
 
         let size_low = fs::metadata(&path_low).expect("Get size").len();
         let size_high = fs::metadata(&path_high).expect("Get size").len();
@@ -196,9 +261,19 @@ mod webp_tests {
         let img = synthetic_image();
         let path = temp_path("export_with_exif.webp");
 
-        let opts = WebPOptions { quality: 80.0, lossless: true, embed_exif: true, embed_icc: false };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::WebP(opts))
-            .expect("Export WebP");
+        let opts = WebPOptions {
+            quality: 80.0,
+            lossless: true,
+            embed_exif: true,
+            embed_icc: false,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::WebP(opts),
+        )
+        .expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert_eq!(&data[0..4], b"RIFF", "Should start with RIFF");
@@ -213,9 +288,19 @@ mod webp_tests {
         let img = synthetic_image();
         let path = temp_path("export_no_exif.webp");
 
-        let opts = WebPOptions { quality: 80.0, lossless: true, embed_exif: false, embed_icc: false };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::WebP(opts))
-            .expect("Export WebP");
+        let opts = WebPOptions {
+            quality: 80.0,
+            lossless: true,
+            embed_exif: false,
+            embed_icc: false,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::WebP(opts),
+        )
+        .expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert!(!webp_has_exif(&data), "WebP should NOT contain EXIF");
@@ -228,8 +313,13 @@ mod webp_tests {
         let img = synthetic_image();
         let path = temp_path("export_default.webp");
 
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::webp())
-            .expect("Export WebP");
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::webp(),
+        )
+        .expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert!(webp_has_exif(&data), "Default WebP should contain EXIF");
@@ -250,8 +340,13 @@ mod png_tests {
         let img = synthetic_image();
         let path = temp_path("export_basic.png");
 
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::png())
-            .expect("Export PNG");
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::png(),
+        )
+        .expect("Export PNG");
 
         let data = fs::read(&path).expect("Read PNG");
         assert_eq!(
@@ -268,9 +363,16 @@ mod png_tests {
         let img = synthetic_image();
         let path = temp_path("export_8bit.png");
 
-        let opts = PngOptions { bit_depth: zune_core::bit_depth::BitDepth::Eight };
-        encode_rgb_image(&img, &ImageMetadata::default(), &path, &EncodeOptions::Png(opts))
-            .expect("Export 8-bit PNG");
+        let opts = PngOptions {
+            bit_depth: zune_core::bit_depth::BitDepth::Eight,
+        };
+        encode_rgb_image(
+            &img,
+            &ImageMetadata::default(),
+            &path,
+            &EncodeOptions::Png(opts),
+        )
+        .expect("Export 8-bit PNG");
 
         assert!(path.exists());
         fs::remove_file(&path).ok();

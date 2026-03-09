@@ -87,7 +87,7 @@ impl IccProfile {
         profile.extend_from_slice(&[0u8; 4]); // Device model (offset 52)
         profile.extend_from_slice(&[0u8; 8]); // Device attributes (offset 56)
         profile.extend_from_slice(&[0, 0, 0, 0]); // Rendering intent: perceptual (offset 64)
-                                                  // PCS illuminant (D50) (offset 68)
+        // PCS illuminant (D50) (offset 68)
         profile.extend_from_slice(&D50_X.to_be_bytes());
         profile.extend_from_slice(&D50_Y.to_be_bytes());
         profile.extend_from_slice(&D50_Z.to_be_bytes());
@@ -200,7 +200,7 @@ impl IccProfile {
         profile.extend_from_slice(&[0u8; 4]); // Reserved
         profile.extend_from_slice(cprt_text);
         profile.push(0); // Null terminator
-                         // Pad to 4 bytes
+        // Pad to 4 bytes
         while profile.len() % 4 != 0 {
             profile.push(0);
         }
@@ -211,7 +211,7 @@ impl IccProfile {
         profile.extend_from_slice(&(desc_text.len() as u32 + 1).to_be_bytes()); // Count
         profile.extend_from_slice(desc_text);
         profile.push(0); // Null terminator
-                         // Pad to 4 bytes
+        // Pad to 4 bytes
         while profile.len() % 4 != 0 {
             profile.push(0);
         }

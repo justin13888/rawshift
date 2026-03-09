@@ -7,8 +7,8 @@ use binrw::{BinWrite, BinWriterExt, Endian};
 use std::io::{Seek, SeekFrom, Write};
 
 use crate::error::RawResult;
-use crate::tiff::types::{ByteOrder, TiffType};
 use crate::tiff::TiffTag;
+use crate::tiff::types::{ByteOrder, TiffType};
 
 /// A single IFD entry to be written.
 #[derive(Debug, Clone)]

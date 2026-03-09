@@ -490,11 +490,7 @@ impl LjpegDecoder {
             return 0;
         }
         let vt = 1 << (t - 1);
-        if v < vt {
-            v + (-1 << t) + 1
-        } else {
-            v
-        }
+        if v < vt { v + (-1 << t) + 1 } else { v }
     }
 
     /// Get the predictor value
@@ -572,11 +568,7 @@ impl LjpegDecoder {
                         // First pixel of other lines: from above (col0_prev)
                         // Other pixels: from left (prev)
                         let predicted = if sx == 0 {
-                            if sy == 0 {
-                                initial
-                            } else {
-                                col0_prev[c]
-                            }
+                            if sy == 0 { initial } else { col0_prev[c] }
                         } else {
                             prev[c]
                         };

@@ -66,11 +66,32 @@ Note on encoding support: For formats that we do not support encoding, you may s
 
 ## MSRV
 
-As of August 2025, the minimum supported Rust version (MSRV) is 1.89.0. This may be quite high but the reason is to ensure modern Rust features are available early in development. This may not be bumped up in for a good while.
+The minimum supported Rust version (MSRV) is **1.85** (edition 2024 requirement). This may be bumped as new language features stabilize.
 
 ## Development
 
 It is important that development velocity is maintained regardless of project complexity. Unit tests for all contributions are expected, especially for platform-specific behaviours!
+
+### Setup
+
+Install [lefthook](https://github.com/evilmartians/lefthook) and activate the pre-commit and pre-push hooks:
+
+```sh
+# macOS / Homebrew
+brew install lefthook
+
+# Linux (Homebrew on Linux)
+brew install lefthook
+
+# via cargo
+cargo install lefthook
+
+# then install the hooks
+lefthook install
+```
+
+The pre-commit hook runs `cargo fmt --check` and `cargo clippy`.
+The pre-push hook runs the full test suite.
 
 ### Testing
 

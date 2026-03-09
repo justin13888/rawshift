@@ -358,7 +358,11 @@ impl<R: Read + Seek> ArwFile<R> {
                             as_shot_neutral = Some([g / r, 1.0, g / b]);
                             tracing::debug!(
                                 "Found WB_RGGBLevels in raw SubIFD (0x7313): RGGB=[{},{},{},{}] -> AsShotNeutral={:?}",
-                                r, g1, g2, b, as_shot_neutral
+                                r,
+                                g1,
+                                g2,
+                                b,
+                                as_shot_neutral
                             );
                         }
                     }
@@ -488,11 +492,11 @@ impl<R: Read + Seek> ArwFile<R> {
         }
 
         // Warn about unknown tags
-        for (tag, _) in &ifd0.other_tags {
+        for tag in ifd0.other_tags.keys() {
             tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in IFD0", tag);
         }
         if let Some(exif) = &ifd0.exif_ifd {
-            for (tag, _) in &exif.other_tags {
+            for tag in exif.other_tags.keys() {
                 // MakerNote is handled, don't warn about it if it ended up here (it shouldn't, as it's known)
                 if *tag != 0x927C {
                     tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in Exif IFD", tag);
@@ -502,10 +506,13 @@ impl<R: Read + Seek> ArwFile<R> {
 
         // Check for Sony SR2 SubIFD (Tag 0x02BC) which often contains the WB data
         // 0x02BC is usually treated as "Unknown" tag in generic parser, so check other_tags.
-        if as_shot_neutral.is_none() && let Some(entry) = ifd0.other_tags.get(&0x02BC) {
+        if as_shot_neutral.is_none()
+            && let Some(entry) = ifd0.other_tags.get(&0x02BC)
+        {
             tracing::debug!(
                 "Found Tag 0x02BC (SR2 Offset Candidate). Type={:?} Count={}",
-                entry.tiff_type, entry.count
+                entry.tiff_type,
+                entry.count
             );
 
             match self.parser.read_value(entry) {
@@ -541,7 +548,10 @@ impl<R: Read + Seek> ArwFile<R> {
                                                     Some([g_gain / r_gain, 1.0, g_gain / b_gain]);
                                                 tracing::debug!(
                                                     "Found WB_RGGBLevels in SR2: Gains=[{}, {}, {}] -> AsShotNeutral={:?}",
-                                                    r_gain, g_gain, b_gain, as_shot_neutral
+                                                    r_gain,
+                                                    g_gain,
+                                                    b_gain,
+                                                    as_shot_neutral
                                                 );
                                             }
                                         }

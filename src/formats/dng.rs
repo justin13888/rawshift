@@ -504,38 +504,53 @@ impl<R: Read + Seek> DngFile<R> {
         let orientation = metadata_helper::extract_orientation(&mut self.parser, &ifd0);
 
         // Extract DNG-specific calibration fields
-        let calibration_illuminant_1 = if let Some(entry) = ifd0.get(TiffTag::CalibrationIlluminant1) {
-            self.parser.read_value(entry).ok().and_then(|v| v.as_u32().map(|x| x as u16))
-        } else {
-            raw_ifd.get(TiffTag::CalibrationIlluminant1)
-                .and_then(|e| self.parser.read_value(e).ok())
-                .and_then(|v| v.as_u32().map(|x| x as u16))
-        };
-        let calibration_illuminant_2 = if let Some(entry) = ifd0.get(TiffTag::CalibrationIlluminant2) {
-            self.parser.read_value(entry).ok().and_then(|v| v.as_u32().map(|x| x as u16))
-        } else {
-            raw_ifd.get(TiffTag::CalibrationIlluminant2)
-                .and_then(|e| self.parser.read_value(e).ok())
-                .and_then(|v| v.as_u32().map(|x| x as u16))
-        };
+        let calibration_illuminant_1 =
+            if let Some(entry) = ifd0.get(TiffTag::CalibrationIlluminant1) {
+                self.parser
+                    .read_value(entry)
+                    .ok()
+                    .and_then(|v| v.as_u32().map(|x| x as u16))
+            } else {
+                raw_ifd
+                    .get(TiffTag::CalibrationIlluminant1)
+                    .and_then(|e| self.parser.read_value(e).ok())
+                    .and_then(|v| v.as_u32().map(|x| x as u16))
+            };
+        let calibration_illuminant_2 =
+            if let Some(entry) = ifd0.get(TiffTag::CalibrationIlluminant2) {
+                self.parser
+                    .read_value(entry)
+                    .ok()
+                    .and_then(|v| v.as_u32().map(|x| x as u16))
+            } else {
+                raw_ifd
+                    .get(TiffTag::CalibrationIlluminant2)
+                    .and_then(|e| self.parser.read_value(e).ok())
+                    .and_then(|v| v.as_u32().map(|x| x as u16))
+            };
 
         // Extract noise profile
-        let noise_profile = raw_ifd.get(TiffTag::NoiseProfile)
+        let noise_profile = raw_ifd
+            .get(TiffTag::NoiseProfile)
             .or_else(|| ifd0.get(TiffTag::NoiseProfile))
             .and_then(|e| self.parser.read_value(e).ok())
             .and_then(|v| v.as_f64_vec());
 
         // Extract profile info
-        let profile_name = raw_ifd.get(TiffTag::ProfileName)
+        let profile_name = raw_ifd
+            .get(TiffTag::ProfileName)
             .or_else(|| ifd0.get(TiffTag::ProfileName))
             .and_then(|e| self.parser.read_value(e).ok())
             .and_then(|v| v.as_str().map(|s| s.to_string()));
-        let profile_tone_curve = raw_ifd.get(TiffTag::ProfileToneCurve)
+        let profile_tone_curve = raw_ifd
+            .get(TiffTag::ProfileToneCurve)
             .or_else(|| ifd0.get(TiffTag::ProfileToneCurve))
             .and_then(|e| self.parser.read_value(e).ok())
             .and_then(|v| match v {
                 TiffValue::Floats(f) => Some(f),
-                _ => v.as_f64_vec().map(|d| d.into_iter().map(|x| x as f32).collect()),
+                _ => v
+                    .as_f64_vec()
+                    .map(|d| d.into_iter().map(|x| x as f32).collect()),
             });
 
         // Extract opcode lists (stored as UNDEFINED bytes, big-endian binary format)
@@ -615,10 +630,10 @@ impl<R: Read + Seek> DngFile<R> {
         });
 
         // Warn about unknown tags
-        for (tag, _) in &ifd0.other_tags {
+        for tag in ifd0.other_tags.keys() {
             tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in IFD0", tag);
         }
-        for (tag, _) in &raw_ifd.other_tags {
+        for tag in raw_ifd.other_tags.keys() {
             tracing::warn!("Unknown/Unimplemented tag 0x{:04X} in Raw IFD", tag);
         }
 
@@ -927,8 +942,7 @@ impl<R: Read + Seek> DngFile<R> {
         // Apply OpcodeList2 — defined as corrections applied to linear raw (post-demosaic) data.
         // This is where GainMap (lens shading correction) lives for iPhone ProRAW.
         if !metadata.opcode_list2.is_empty() {
-            let opcode_list =
-                crate::transforms::opcodes::OpcodeList::parse(&metadata.opcode_list2);
+            let opcode_list = crate::transforms::opcodes::OpcodeList::parse(&metadata.opcode_list2);
             opcode_list.apply_to_rgb(&mut image);
         }
 

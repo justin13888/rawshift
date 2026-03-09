@@ -8,17 +8,17 @@ pub mod dng;
 pub mod dng_export;
 pub mod export;
 
-pub use dng_export::{export_dng, DngExportConfig};
+pub use dng_export::{DngExportConfig, export_dng};
 
 use std::io::{Read, Seek, SeekFrom};
 
-use crate::core::metadata::ImageMetadata;
 use crate::core::image::RgbImage;
+use crate::core::metadata::ImageMetadata;
 use crate::error::{RawError, RawResult};
-use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance};
 use crate::processing::ProcessingOptions;
-use crate::transforms::tonemap::apply_tonemap;
+use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance};
 use crate::tiff::{TiffParser, TiffTag};
+use crate::transforms::tonemap::apply_tonemap;
 use export::EncodeOptions;
 use std::path::Path;
 use tracing::instrument;
@@ -244,7 +244,10 @@ impl<R: Read + Seek> RawFile<R> {
         // which uses extra highlight headroom (negative EV) for smooth rolloff instead of
         // clipping. This replaces the simple gamma step further below.
         if let Some(exposure) = rgb_image.baseline_exposure {
-            tracing::debug!("Applying BaselineExposure={:.2} EV with filmic tone mapping", exposure);
+            tracing::debug!(
+                "Applying BaselineExposure={:.2} EV with filmic tone mapping",
+                exposure
+            );
         } else {
             tracing::trace!("Applying filmic tone mapping (no BaselineExposure)");
         }
@@ -489,7 +492,10 @@ fn apply_orientation_transform(image: &mut crate::core::image::RgbImage, orienta
             rotate_90_cw_rgb(image);
         }
         8 => rotate_90_ccw_rgb(image),
-        _ => tracing::warn!("Unknown orientation value: {}, skipping transform", orientation),
+        _ => tracing::warn!(
+            "Unknown orientation value: {}, skipping transform",
+            orientation
+        ),
     }
 }
 
@@ -644,7 +650,12 @@ pub fn encode_rgb_image(
 
             let quality = if opts.quality == 0 { 90 } else { opts.quality };
             let encoder = Encoder::new_file(path, quality)?;
-            encoder.encode(&data_8bit, image.width as u16, image.height as u16, ColorType::Rgb)?;
+            encoder.encode(
+                &data_8bit,
+                image.width as u16,
+                image.height as u16,
+                ColorType::Rgb,
+            )?;
 
             if opts.embed_exif || opts.embed_icc {
                 let mut jpeg_data = std::fs::read(path)?;
@@ -679,7 +690,12 @@ pub fn encode_rgb_image(
 
             let mut output = Vec::new();
             let encoder = WebPEncoder::new(&mut output);
-            encoder.encode(&data_8bit, image.width, image.height, image_webp::ColorType::Rgb8)?;
+            encoder.encode(
+                &data_8bit,
+                image.width,
+                image.height,
+                image_webp::ColorType::Rgb8,
+            )?;
 
             if opts.embed_exif || opts.embed_icc {
                 if opts.embed_exif {
@@ -714,7 +730,11 @@ pub fn encode_rgb_image(
                 })
                 .collect();
 
-            let img = Img::new(rgba_data.as_slice(), image.width as usize, image.height as usize);
+            let img = Img::new(
+                rgba_data.as_slice(),
+                image.width as usize,
+                image.height as usize,
+            );
 
             let encoder = Encoder::new()
                 .with_quality(opts.quality as f32)
@@ -738,7 +758,11 @@ pub fn encode_rgb_image(
 
             let data_8bit: Vec<u8> = image.data.iter().map(|&p| (p >> 8) as u8).collect();
 
-            let quality = if opts.quality == 0.0 { 100 } else { opts.quality as u8 };
+            let quality = if opts.quality == 0.0 {
+                100
+            } else {
+                opts.quality as u8
+            };
             let enc_options = EncoderOptions::default()
                 .set_width(image.width as usize)
                 .set_height(image.height as usize)
@@ -847,9 +871,18 @@ mod tests {
         let b_wb = (b_raw as f32 * b_gain).min(white_f) as u16;
 
         // None should exceed effective_white
-        assert!(r_wb <= effective_white, "R clipped: {r_wb} > {effective_white}");
-        assert!(g_wb <= effective_white, "G clipped: {g_wb} > {effective_white}");
-        assert!(b_wb <= effective_white, "B clipped: {b_wb} > {effective_white}");
+        assert!(
+            r_wb <= effective_white,
+            "R clipped: {r_wb} > {effective_white}"
+        );
+        assert!(
+            g_wb <= effective_white,
+            "G clipped: {g_wb} > {effective_white}"
+        );
+        assert!(
+            b_wb <= effective_white,
+            "B clipped: {b_wb} > {effective_white}"
+        );
 
         // After 16-bit normalization, all channels should be approximately equal
         // (neutral gray should be neutral after WB)
@@ -1082,7 +1115,7 @@ mod tests {
 
     #[test]
     fn test_orientation_identity() {
-        let mut img = make_test_rgb(2, 2, vec![1,2,3, 4,5,6, 7,8,9, 10,11,12]);
+        let mut img = make_test_rgb(2, 2, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let original = img.data.clone();
         apply_orientation_transform(&mut img, 1);
         assert_eq!(img.data, original);
@@ -1090,7 +1123,13 @@ mod tests {
 
     #[test]
     fn test_orientation_6_cw_then_ccw_is_identity() {
-        let mut img = make_test_rgb(3, 2, vec![1,2,3, 4,5,6, 7,8,9, 10,11,12, 13,14,15, 16,17,18]);
+        let mut img = make_test_rgb(
+            3,
+            2,
+            vec![
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+            ],
+        );
         let original_data = img.data.clone();
         let original_w = img.width;
         let original_h = img.height;
