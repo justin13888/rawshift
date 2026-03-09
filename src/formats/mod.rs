@@ -16,9 +16,10 @@ use crate::core::image::RgbImage;
 use crate::core::metadata::ImageMetadata;
 use crate::error::{RawError, RawResult};
 use crate::processing::ProcessingOptions;
-use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance};
 use crate::tiff::{TiffParser, TiffTag};
-use crate::transforms::tonemap::apply_tonemap;
+use crate::transforms::black_level::apply_black_level;
+use crate::transforms::color::{apply_color_matrix, apply_white_balance};
+use crate::transforms::tonemap::apply_tone_reproduction;
 use export::EncodeOptions;
 use std::path::Path;
 use tracing::instrument;
@@ -182,17 +183,7 @@ impl<R: Read + Seek> RawFile<R> {
             };
 
             // Per-channel black level subtraction
-            // black_levels[i] maps to CFA position (i % 2, i / 2) in the 2x2 Bayer pattern
-            let bl = raw_image.black_levels;
-            if bl[0] > 0 || bl[1] > 0 || bl[2] > 0 || bl[3] > 0 {
-                let width = raw_image.size.width as usize;
-                for (i, pixel) in raw_image.data.iter_mut().enumerate() {
-                    let x = i % width;
-                    let y = i / width;
-                    let bl_idx = (y % 2) * 2 + (x % 2);
-                    *pixel = pixel.saturating_sub(bl[bl_idx]);
-                }
-            }
+            apply_black_level(&mut raw_image);
 
             // Apply WB gains to CFA data before normalization.
             // Applying high WB multipliers (e.g. Red 2.35) to already 16-bit-normalized data
@@ -200,7 +191,9 @@ impl<R: Read + Seek> RawFile<R> {
             // Applying WB at native bit depth and clamping to the sensor white level ensures
             // only genuinely saturated pixels clip to white.
             // Use first-channel black level as representative value (equal across channels for most cameras)
-            let effective_white = raw_image.white_level.saturating_sub(bl[0]);
+            let effective_white = raw_image
+                .white_level
+                .saturating_sub(raw_image.black_levels[0]);
             if let Some((r_gain, g_gain, b_gain)) = cfa_wb {
                 let white_f = effective_white as f32;
                 let width = raw_image.size.width as usize;
@@ -328,11 +321,8 @@ impl<R: Read + Seek> RawFile<R> {
         // If a custom gamma is explicitly requested, use simple gamma instead (advanced users).
         if let Some(g) = processing_options.gamma {
             tracing::trace!("Applying custom gamma override: {}", g);
-            apply_gamma(&mut rgb_image, g);
-        } else {
-            let baseline_exposure = rgb_image.baseline_exposure;
-            apply_tonemap(&mut rgb_image, baseline_exposure);
         }
+        apply_tone_reproduction(&mut rgb_image, processing_options.gamma);
 
         // Orientation Transform
         // Apply orientation correction to produce an upright image.

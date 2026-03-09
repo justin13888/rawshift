@@ -13,6 +13,24 @@
 //! negative BaselineExposure (e.g. iPhone ProRAW at -0.83 EV) and positive values.
 
 use crate::core::image::RgbImage;
+use crate::processing::color::apply_gamma;
+
+/// Apply tone reproduction to an RGB image.
+///
+/// If `custom_gamma` is `Some(g)`, applies simple power-law gamma correction
+/// (useful for advanced users who want direct control).
+/// Otherwise, applies the full filmic tone mapping pipeline with optional
+/// BaselineExposure from the image metadata.
+///
+/// Input must be scene-linear, normalized to [0, 65535].
+/// After this call, data is display-referred and gamma-encoded in [0, 65535].
+pub fn apply_tone_reproduction(image: &mut RgbImage, custom_gamma: Option<f32>) {
+    if let Some(gamma) = custom_gamma {
+        apply_gamma(image, gamma);
+    } else {
+        apply_tonemap(image, image.baseline_exposure);
+    }
+}
 
 /// Apply the full tone reproduction pipeline to an RGB image.
 ///
@@ -156,5 +174,24 @@ mod tests {
     fn srgb_encode_extremes() {
         assert!((srgb_encode(0.0)).abs() < 1e-6);
         assert!((srgb_encode(1.0) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn tone_reproduction_uses_gamma_when_specified() {
+        let mut img_gamma = make_image(&[32768, 32768, 32768]);
+        let mut img_filmic = make_image(&[32768, 32768, 32768]);
+        apply_tone_reproduction(&mut img_gamma, Some(2.2));
+        apply_tone_reproduction(&mut img_filmic, None);
+        // They should produce different results
+        assert_ne!(img_gamma.data[0], img_filmic.data[0]);
+    }
+
+    #[test]
+    fn tone_reproduction_none_matches_filmic() {
+        let mut img_repro = make_image(&[32768, 32768, 32768]);
+        let mut img_filmic = make_image(&[32768, 32768, 32768]);
+        apply_tone_reproduction(&mut img_repro, None);
+        apply_tonemap(&mut img_filmic, None);
+        assert_eq!(img_repro.data[0], img_filmic.data[0]);
     }
 }
