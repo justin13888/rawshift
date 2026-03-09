@@ -18,7 +18,7 @@ use crate::error::{RawError, RawResult};
 use crate::processing::ProcessingOptions;
 use crate::tiff::{TiffParser, TiffTag};
 use crate::transforms::black_level::apply_black_level;
-use crate::transforms::color::{apply_color_matrix, apply_white_balance};
+use crate::transforms::color::{apply_color_matrix, apply_white_balance, apply_white_balance_raw};
 use crate::transforms::tonemap::apply_tone_reproduction;
 use export::EncodeOptions;
 use std::path::Path;
@@ -188,28 +188,19 @@ impl<R: Read + Seek> RawFile<R> {
             // Apply WB gains to CFA data before normalization.
             // Applying high WB multipliers (e.g. Red 2.35) to already 16-bit-normalized data
             // causes near-white pixels to clip to 65535, producing pink/cyan highlights.
-            // Applying WB at native bit depth and clamping to the sensor white level ensures
-            // only genuinely saturated pixels clip to white.
-            // Use first-channel black level as representative value (equal across channels for most cameras)
+            // Applying WB at native bit depth keeps values proportional; normalization below
+            // scales to [0, 65535] and any values beyond effective_white naturally clip.
             let effective_white = raw_image
                 .white_level
                 .saturating_sub(raw_image.black_levels[0]);
-            if let Some((r_gain, g_gain, b_gain)) = cfa_wb {
-                let white_f = effective_white as f32;
-                let width = raw_image.size.width as usize;
-                let cfa_pattern = raw_image.cfa_pattern;
-                for (idx, pixel) in raw_image.data.iter_mut().enumerate() {
-                    let x = (idx % width) as u32;
-                    let y = (idx / width) as u32;
-                    let gain = cfa_channel_gain(x, y, cfa_pattern, r_gain, g_gain, b_gain);
-                    let scaled = *pixel as f32 * gain;
-                    *pixel = scaled.min(white_f).max(0.0) as u16;
-                }
+            if let Some(coeffs) = cfa_wb {
+                apply_white_balance_raw(&mut raw_image, coeffs);
                 wb_applied_to_cfa = true;
             }
 
             // Normalize to 16-bit based on actual white level (not a power-of-2 bit-shift).
-            // After WB and clamping, values are in [0, effective_white]; scale to [0, 65535].
+            // After WB, values may exceed effective_white; normalization scales them and
+            // the u16 cast naturally clamps to 65535.
             if effective_white > 0 && effective_white < 65535 {
                 let scale = 65535.0 / effective_white as f32;
                 for pixel in &mut raw_image.data {
@@ -405,47 +396,6 @@ impl<R: Read + Seek> RawFile<R> {
         Err(RawError::UnsupportedFormat(
             "Unrecognized camera manufacturer".to_string(),
         ))
-    }
-}
-
-/// Returns the white balance gain for a raw CFA pixel at position (x, y).
-///
-/// Uses the 2x2 Bayer pattern to map each pixel to its channel (R, G, or B)
-/// and return the corresponding WB gain.
-fn cfa_channel_gain(
-    x: u32,
-    y: u32,
-    pattern: crate::core::image::CfaPattern,
-    r_gain: f32,
-    g_gain: f32,
-    b_gain: f32,
-) -> f32 {
-    use crate::core::image::CfaPattern;
-    match pattern {
-        // RGGB: (0,0)=R  (1,0)=G  (0,1)=G  (1,1)=B
-        CfaPattern::Rggb => match (x % 2, y % 2) {
-            (0, 0) => r_gain,
-            (1, 1) => b_gain,
-            _ => g_gain,
-        },
-        // GRBG: (0,0)=G  (1,0)=R  (0,1)=B  (1,1)=G
-        CfaPattern::Grbg => match (x % 2, y % 2) {
-            (1, 0) => r_gain,
-            (0, 1) => b_gain,
-            _ => g_gain,
-        },
-        // BGGR: (0,0)=B  (1,0)=G  (0,1)=G  (1,1)=R
-        CfaPattern::Bggr => match (x % 2, y % 2) {
-            (1, 1) => r_gain,
-            (0, 0) => b_gain,
-            _ => g_gain,
-        },
-        // GBRG: (0,0)=G  (1,0)=B  (0,1)=R  (1,1)=G
-        CfaPattern::Gbrg => match (x % 2, y % 2) {
-            (0, 1) => r_gain,
-            (1, 0) => b_gain,
-            _ => g_gain,
-        },
     }
 }
 
@@ -783,57 +733,6 @@ pub fn encode_rgb_image(
 mod tests {
     use super::*;
     use std::io::Cursor;
-
-    // -------------------------------------------------------------------------
-    // Tests for cfa_channel_gain
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cfa_channel_gain_rggb() {
-        use crate::core::image::CfaPattern;
-        let (r, g, b) = (2.35f32, 1.0f32, 1.65f32);
-        // RGGB layout: (0,0)=R (1,0)=G (0,1)=G (1,1)=B
-        assert_eq!(cfa_channel_gain(0, 0, CfaPattern::Rggb, r, g, b), r);
-        assert_eq!(cfa_channel_gain(1, 0, CfaPattern::Rggb, r, g, b), g);
-        assert_eq!(cfa_channel_gain(0, 1, CfaPattern::Rggb, r, g, b), g);
-        assert_eq!(cfa_channel_gain(1, 1, CfaPattern::Rggb, r, g, b), b);
-        // Pattern repeats every 2 pixels
-        assert_eq!(cfa_channel_gain(2, 0, CfaPattern::Rggb, r, g, b), r);
-        assert_eq!(cfa_channel_gain(3, 1, CfaPattern::Rggb, r, g, b), b);
-    }
-
-    #[test]
-    fn test_cfa_channel_gain_grbg() {
-        use crate::core::image::CfaPattern;
-        let (r, g, b) = (2.35f32, 1.0f32, 1.65f32);
-        // GRBG layout: (0,0)=G (1,0)=R (0,1)=B (1,1)=G
-        assert_eq!(cfa_channel_gain(0, 0, CfaPattern::Grbg, r, g, b), g);
-        assert_eq!(cfa_channel_gain(1, 0, CfaPattern::Grbg, r, g, b), r);
-        assert_eq!(cfa_channel_gain(0, 1, CfaPattern::Grbg, r, g, b), b);
-        assert_eq!(cfa_channel_gain(1, 1, CfaPattern::Grbg, r, g, b), g);
-    }
-
-    #[test]
-    fn test_cfa_channel_gain_bggr() {
-        use crate::core::image::CfaPattern;
-        let (r, g, b) = (2.35f32, 1.0f32, 1.65f32);
-        // BGGR layout: (0,0)=B (1,0)=G (0,1)=G (1,1)=R
-        assert_eq!(cfa_channel_gain(0, 0, CfaPattern::Bggr, r, g, b), b);
-        assert_eq!(cfa_channel_gain(1, 0, CfaPattern::Bggr, r, g, b), g);
-        assert_eq!(cfa_channel_gain(0, 1, CfaPattern::Bggr, r, g, b), g);
-        assert_eq!(cfa_channel_gain(1, 1, CfaPattern::Bggr, r, g, b), r);
-    }
-
-    #[test]
-    fn test_cfa_channel_gain_gbrg() {
-        use crate::core::image::CfaPattern;
-        let (r, g, b) = (2.35f32, 1.0f32, 1.65f32);
-        // GBRG layout: (0,0)=G (1,0)=B (0,1)=R (1,1)=G
-        assert_eq!(cfa_channel_gain(0, 0, CfaPattern::Gbrg, r, g, b), g);
-        assert_eq!(cfa_channel_gain(1, 0, CfaPattern::Gbrg, r, g, b), b);
-        assert_eq!(cfa_channel_gain(0, 1, CfaPattern::Gbrg, r, g, b), r);
-        assert_eq!(cfa_channel_gain(1, 1, CfaPattern::Gbrg, r, g, b), g);
-    }
 
     /// Verify that applying WB before normalization prevents highlight clipping
     /// for neutral-gray pixels that would otherwise be pushed above 65535.

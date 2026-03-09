@@ -11,7 +11,9 @@ use crate::core::image::RgbImage;
 use crate::error::RawResult;
 
 // Re-export processing primitives as canonical transform entry points.
-pub use crate::processing::color::{apply_color_matrix, apply_white_balance};
+pub use crate::processing::color::{
+    apply_color_matrix, apply_white_balance, apply_white_balance_raw,
+};
 
 /// Matrix to convert from CIE XYZ to sRGB (D65).
 // TODO: Replace this. Calculate and verify

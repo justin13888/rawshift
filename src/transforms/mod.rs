@@ -36,5 +36,7 @@ pub mod opcodes;
 pub mod tonemap;
 
 pub use black_level::apply_black_level;
-pub use color::{ColorSpaceTransform, apply_color_matrix, apply_white_balance};
+pub use color::{
+    ColorSpaceTransform, apply_color_matrix, apply_white_balance, apply_white_balance_raw,
+};
 pub use tonemap::{apply_tone_reproduction, apply_tonemap};
