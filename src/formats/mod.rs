@@ -12,6 +12,8 @@ pub use dng_export::{export_dng, DngExportConfig};
 
 use std::io::{Read, Seek, SeekFrom};
 
+use crate::core::metadata::ImageMetadata;
+use crate::core::image::RgbImage;
 use crate::error::{RawError, RawResult};
 use crate::processing::color::{apply_color_matrix, apply_gamma, apply_white_balance};
 use crate::processing::ProcessingOptions;
@@ -353,220 +355,7 @@ impl<R: Read + Seek> RawFile<R> {
             m
         };
 
-        match encode_options {
-            EncodeOptions::Png(opts) => {
-                use zune_core::colorspace::ColorSpace;
-                use zune_core::options::EncoderOptions;
-                use zune_png::PngEncoder;
-
-                // Configure options
-                let options = EncoderOptions::default()
-                    .set_width(rgb_image.width as usize)
-                    .set_height(rgb_image.height as usize)
-                    .set_colorspace(ColorSpace::RGB)
-                    .set_depth(opts.bit_depth);
-
-                // Prepare data (Big Endian for 16-bit PNG)
-                let data_bytes = if opts.bit_depth == zune_core::bit_depth::BitDepth::Sixteen {
-                    let mut bytes = Vec::with_capacity(rgb_image.data.len() * 2);
-                    for &pixel in &rgb_image.data {
-                        bytes.extend_from_slice(&pixel.to_be_bytes());
-                    }
-                    bytes
-                } else {
-                    // 8-bit downscaling
-                    let mut bytes = Vec::with_capacity(rgb_image.data.len());
-                    for &pixel in &rgb_image.data {
-                        bytes.push((pixel >> 8) as u8);
-                    }
-                    bytes
-                };
-
-                // Encode and write to file
-                let mut encoder = PngEncoder::new(&data_bytes, options);
-                let mut output = Vec::new();
-                encoder
-                    .encode(&mut output)
-                    .map_err(|e| RawError::ParseError(format!("PNG encoding error: {:?}", e)))?;
-                let mut file = std::fs::File::create(path.as_ref())?;
-                use std::io::Write;
-                file.write_all(&output)?;
-            }
-            EncodeOptions::Jpeg(opts) => {
-                use crate::metadata::exif::ExifBuilder;
-                use crate::metadata::icc::IccProfile;
-                use jpeg_encoder::{ColorType, Encoder};
-
-                // Convert 16-bit to 8-bit for JPEG
-                let mut data_8bit = Vec::with_capacity(rgb_image.data.len());
-                for &pixel in &rgb_image.data {
-                    data_8bit.push((pixel >> 8) as u8);
-                }
-
-                // Encode JPEG
-                let quality = if opts.quality == 0 { 90 } else { opts.quality };
-                let encoder = Encoder::new_file(path.as_ref(), quality)?;
-                encoder.encode(
-                    &data_8bit,
-                    rgb_image.width as u16,
-                    rgb_image.height as u16,
-                    ColorType::Rgb,
-                )?;
-
-                // Read back the JPEG for metadata embedding
-                if opts.embed_exif || opts.embed_icc {
-                    let mut jpeg_data = std::fs::read(path.as_ref())?;
-
-                    // Embed EXIF
-                    if opts.embed_exif {
-                        let exif_builder = ExifBuilder::new(&exif_metadata);
-                        match exif_builder.append_to_jpeg(jpeg_data.clone()) {
-                            Ok(data) => jpeg_data = data,
-                            Err(e) => tracing::warn!("Failed to embed EXIF: {}", e),
-                        }
-                    }
-
-                    // Embed ICC profile
-                    if opts.embed_icc {
-                        let icc = IccProfile::srgb();
-                        match icc.append_to_jpeg(jpeg_data.clone()) {
-                            Ok(data) => jpeg_data = data,
-                            Err(e) => tracing::warn!("Failed to embed ICC: {}", e),
-                        }
-                    }
-
-                    // Write final file
-                    std::fs::write(path.as_ref(), jpeg_data)?;
-                }
-            }
-            EncodeOptions::WebP(opts) => {
-                use crate::metadata::exif::ExifBuilder;
-                use image_webp::WebPEncoder;
-
-                // Convert 16-bit to 8-bit for WebP
-                let mut data_8bit = Vec::with_capacity(rgb_image.data.len());
-                for &pixel in &rgb_image.data {
-                    data_8bit.push((pixel >> 8) as u8);
-                }
-
-                // Encode WebP (lossless only for now with image-webp)
-                let mut output = Vec::new();
-                let encoder = WebPEncoder::new(&mut output);
-                encoder.encode(
-                    &data_8bit,
-                    rgb_image.width,
-                    rgb_image.height,
-                    image_webp::ColorType::Rgb8,
-                )?;
-
-                // Embed metadata if requested
-                if opts.embed_exif || opts.embed_icc {
-                    // Embed EXIF
-                    if opts.embed_exif {
-                        let exif_builder = ExifBuilder::new(&exif_metadata);
-                        match exif_builder.append_to_webp(output.clone()) {
-                            Ok(data) => output = data,
-                            Err(e) => tracing::warn!("Failed to embed EXIF in WebP: {}", e),
-                        }
-                    }
-
-                    // Note: ICC for WebP requires different handling via ICCP chunk
-                    // img-parts doesn't support WebP ICC directly, so we skip for now
-                    if opts.embed_icc {
-                        tracing::debug!("ICC profile embedding in WebP not yet supported");
-                    }
-                }
-
-                // Write to file
-                std::fs::write(path.as_ref(), output)?;
-            }
-            #[cfg(feature = "avif")]
-            EncodeOptions::Avif(opts) => {
-                use ravif::{Encoder, Img, RGBA8};
-
-                // Convert 16-bit RGB to 8-bit RGBA (add opaque alpha)
-                let rgba_data: Vec<RGBA8> = rgb_image
-                    .data
-                    .chunks(3)
-                    .map(|rgb| {
-                        RGBA8::new(
-                            (rgb[0] >> 8) as u8,
-                            (rgb[1] >> 8) as u8,
-                            (rgb[2] >> 8) as u8,
-                            255, // Opaque alpha
-                        )
-                    })
-                    .collect();
-
-                // Create image
-                let img = Img::new(
-                    rgba_data.as_slice(),
-                    rgb_image.width as usize,
-                    rgb_image.height as usize,
-                );
-
-                // Create encoder
-                let encoder = Encoder::new()
-                    .with_quality(opts.quality as f32)
-                    .with_speed(opts.speed);
-
-                // Encode AVIF
-                let result = encoder.encode_rgba(img).expect("Encode AVIF");
-
-                // Write to file
-                std::fs::write(path.as_ref(), result.avif_file)?;
-
-                if opts.embed_exif {
-                    // AVIF EXIF embedding is disabled: little_exif's AVIF support
-                    // corrupts the output file. See https://github.com/nickkjolsing/little_exif/issues
-                    tracing::warn!(
-                        "AVIF EXIF embedding is currently disabled due to file corruption. \
-                         The image was saved without EXIF metadata."
-                    );
-                }
-            }
-            #[cfg(feature = "jxl-encode")]
-            EncodeOptions::Jxl(opts) => {
-                use zune_core::colorspace::ColorSpace;
-                use zune_core::options::EncoderOptions;
-                use zune_jpegxl::JxlSimpleEncoder;
-
-                // Convert 16-bit to 8-bit for JXL
-                let data_8bit: Vec<u8> = rgb_image.data.iter().map(|&p| (p >> 8) as u8).collect();
-
-                // Configure encoder options (quality is 0-100 as u8)
-                let quality = if opts.quality == 0.0 {
-                    100
-                } else {
-                    opts.quality as u8
-                };
-                let enc_options = EncoderOptions::default()
-                    .set_width(rgb_image.width as usize)
-                    .set_height(rgb_image.height as usize)
-                    .set_colorspace(ColorSpace::RGB)
-                    .set_quality(quality);
-
-                // Encode JXL
-                let encoder = JxlSimpleEncoder::new(&data_8bit, enc_options);
-                let encoded = encoder.encode().expect("Encode JXL");
-
-                // Write to file
-                std::fs::write(path.as_ref(), encoded)?;
-
-                if opts.embed_exif {
-                    use crate::metadata::exif::ExifBuilder;
-                    let exif_builder = ExifBuilder::new(&exif_metadata);
-                    if let Err(e) = exif_builder.append_to_jxl_file(path.as_ref()) {
-                        tracing::warn!("Failed to embed EXIF in JXL: {}", e);
-                    }
-                }
-            }
-            EncodeOptions::Dng(config) => {
-                export_dng(path.as_ref(), &rgb_image, &exif_metadata, config)?;
-            }
-        }
-
-        Ok(())
+        encode_rgb_image(&rgb_image, &exif_metadata, path.as_ref(), encode_options)
     }
 
     /// Helper to check if the current file is a LinearRaw DNG
@@ -794,6 +583,188 @@ fn rotate_90_ccw_rgb(image: &mut crate::core::image::RgbImage) {
     image.height = new_h as u32;
 }
 
+/// Encode a linear RGB image to a file with optional EXIF/ICC metadata.
+///
+/// This is a standalone function extracted from `RawFile::export()` so that
+/// tests and callers can encode synthetic or pre-decoded images without going
+/// through the full RAW decode pipeline.
+///
+/// `image` must contain 16-bit scene-linear RGB data normalized to [0, 65535].
+/// Call `apply_tonemap` first if the image hasn't been tone-mapped yet.
+pub fn encode_rgb_image(
+    image: &RgbImage,
+    metadata: &ImageMetadata,
+    path: &Path,
+    encode_options: &EncodeOptions,
+) -> RawResult<()> {
+    match encode_options {
+        EncodeOptions::Png(opts) => {
+            use zune_core::colorspace::ColorSpace;
+            use zune_core::options::EncoderOptions;
+            use zune_png::PngEncoder;
+
+            let options = EncoderOptions::default()
+                .set_width(image.width as usize)
+                .set_height(image.height as usize)
+                .set_colorspace(ColorSpace::RGB)
+                .set_depth(opts.bit_depth);
+
+            let data_bytes = if opts.bit_depth == zune_core::bit_depth::BitDepth::Sixteen {
+                let mut bytes = Vec::with_capacity(image.data.len() * 2);
+                for &pixel in &image.data {
+                    bytes.extend_from_slice(&pixel.to_be_bytes());
+                }
+                bytes
+            } else {
+                let mut bytes = Vec::with_capacity(image.data.len());
+                for &pixel in &image.data {
+                    bytes.push((pixel >> 8) as u8);
+                }
+                bytes
+            };
+
+            let mut encoder = PngEncoder::new(&data_bytes, options);
+            let mut output = Vec::new();
+            encoder
+                .encode(&mut output)
+                .map_err(|e| RawError::ParseError(format!("PNG encoding error: {:?}", e)))?;
+            let mut file = std::fs::File::create(path)?;
+            use std::io::Write;
+            file.write_all(&output)?;
+        }
+        EncodeOptions::Jpeg(opts) => {
+            use crate::metadata::exif::ExifBuilder;
+            use crate::metadata::icc::IccProfile;
+            use jpeg_encoder::{ColorType, Encoder};
+
+            let mut data_8bit = Vec::with_capacity(image.data.len());
+            for &pixel in &image.data {
+                data_8bit.push((pixel >> 8) as u8);
+            }
+
+            let quality = if opts.quality == 0 { 90 } else { opts.quality };
+            let encoder = Encoder::new_file(path, quality)?;
+            encoder.encode(&data_8bit, image.width as u16, image.height as u16, ColorType::Rgb)?;
+
+            if opts.embed_exif || opts.embed_icc {
+                let mut jpeg_data = std::fs::read(path)?;
+
+                if opts.embed_exif {
+                    let exif_builder = ExifBuilder::new(metadata);
+                    match exif_builder.append_to_jpeg(jpeg_data.clone()) {
+                        Ok(data) => jpeg_data = data,
+                        Err(e) => tracing::warn!("Failed to embed EXIF: {}", e),
+                    }
+                }
+
+                if opts.embed_icc {
+                    let icc = IccProfile::srgb();
+                    match icc.append_to_jpeg(jpeg_data.clone()) {
+                        Ok(data) => jpeg_data = data,
+                        Err(e) => tracing::warn!("Failed to embed ICC: {}", e),
+                    }
+                }
+
+                std::fs::write(path, jpeg_data)?;
+            }
+        }
+        EncodeOptions::WebP(opts) => {
+            use crate::metadata::exif::ExifBuilder;
+            use image_webp::WebPEncoder;
+
+            let mut data_8bit = Vec::with_capacity(image.data.len());
+            for &pixel in &image.data {
+                data_8bit.push((pixel >> 8) as u8);
+            }
+
+            let mut output = Vec::new();
+            let encoder = WebPEncoder::new(&mut output);
+            encoder.encode(&data_8bit, image.width, image.height, image_webp::ColorType::Rgb8)?;
+
+            if opts.embed_exif || opts.embed_icc {
+                if opts.embed_exif {
+                    let exif_builder = ExifBuilder::new(metadata);
+                    match exif_builder.append_to_webp(output.clone()) {
+                        Ok(data) => output = data,
+                        Err(e) => tracing::warn!("Failed to embed EXIF in WebP: {}", e),
+                    }
+                }
+
+                if opts.embed_icc {
+                    tracing::debug!("ICC profile embedding in WebP not yet supported");
+                }
+            }
+
+            std::fs::write(path, output)?;
+        }
+        #[cfg(feature = "avif")]
+        EncodeOptions::Avif(opts) => {
+            use ravif::{Encoder, Img, RGBA8};
+
+            let rgba_data: Vec<RGBA8> = image
+                .data
+                .chunks(3)
+                .map(|rgb| {
+                    RGBA8::new(
+                        (rgb[0] >> 8) as u8,
+                        (rgb[1] >> 8) as u8,
+                        (rgb[2] >> 8) as u8,
+                        255,
+                    )
+                })
+                .collect();
+
+            let img = Img::new(rgba_data.as_slice(), image.width as usize, image.height as usize);
+
+            let encoder = Encoder::new()
+                .with_quality(opts.quality as f32)
+                .with_speed(opts.speed);
+
+            let result = encoder.encode_rgba(img).expect("Encode AVIF");
+            std::fs::write(path, result.avif_file)?;
+
+            if opts.embed_exif {
+                tracing::warn!(
+                    "AVIF EXIF embedding is currently disabled due to file corruption. \
+                     The image was saved without EXIF metadata."
+                );
+            }
+        }
+        #[cfg(feature = "jxl-encode")]
+        EncodeOptions::Jxl(opts) => {
+            use zune_core::colorspace::ColorSpace;
+            use zune_core::options::EncoderOptions;
+            use zune_jpegxl::JxlSimpleEncoder;
+
+            let data_8bit: Vec<u8> = image.data.iter().map(|&p| (p >> 8) as u8).collect();
+
+            let quality = if opts.quality == 0.0 { 100 } else { opts.quality as u8 };
+            let enc_options = EncoderOptions::default()
+                .set_width(image.width as usize)
+                .set_height(image.height as usize)
+                .set_colorspace(ColorSpace::RGB)
+                .set_quality(quality);
+
+            let encoder = JxlSimpleEncoder::new(&data_8bit, enc_options);
+            let encoded = encoder.encode().expect("Encode JXL");
+            std::fs::write(path, encoded)?;
+
+            if opts.embed_exif {
+                use crate::metadata::exif::ExifBuilder;
+                let exif_builder = ExifBuilder::new(metadata);
+                if let Err(e) = exif_builder.append_to_jxl_file(path) {
+                    tracing::warn!("Failed to embed EXIF in JXL: {}", e);
+                }
+            }
+        }
+        EncodeOptions::Dng(config) => {
+            export_dng(path, image, metadata, config)?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -854,8 +825,6 @@ mod tests {
     /// for neutral-gray pixels that would otherwise be pushed above 65535.
     #[test]
     fn test_wb_before_normalization_no_clipping_for_midtones() {
-        use crate::core::image::CfaPattern;
-
         // Simulate 14-bit sensor: white_level=16383, black_level=512
         // WB: R=2.35, G=1.0, B=1.65 (typical daylight for Sony APS-C)
         let white_level: u16 = 16383;
