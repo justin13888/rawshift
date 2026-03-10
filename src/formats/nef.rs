@@ -312,7 +312,11 @@ impl<R: Read + Seek> NefFile<R> {
 
     /// Decode the raw image data into a RawImage.
     pub fn decode_raw(&mut self) -> RawResult<RawImage> {
-        let metadata = self.metadata.as_ref().unwrap().clone();
+        let metadata = self
+            .metadata
+            .as_ref()
+            .ok_or_else(|| RawError::NefError("Metadata not available".to_string()))?
+            .clone();
 
         match metadata.compression {
             // Uncompressed: raw u16 values directly in the strip
