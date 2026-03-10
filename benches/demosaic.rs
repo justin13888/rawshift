@@ -23,6 +23,7 @@ fn create_test_raw(width: u32, height: u32) -> RawImage {
         active_area: area,
         bit_depth: 14,
         cfa_pattern: CfaPattern::Rggb,
+        xtrans_pattern: None,
         black_levels: [0; 4],
         white_level: 16383,
         data,

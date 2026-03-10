@@ -132,6 +132,40 @@ impl CfaPattern {
     }
 }
 
+/// X-Trans CFA pattern (6x6 repeating tile).
+///
+/// Values: 0=Red, 1=Green, 2=Blue
+/// Row-major order, 36 elements total.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XTransPattern {
+    /// 6x6 grid of color indices: 0=Red, 1=Green, 2=Blue
+    pub cells: [[u8; 6]; 6],
+}
+
+impl XTransPattern {
+    /// Standard Fujifilm X-Trans I pattern (as used in RawTherapee/darktable).
+    pub fn standard() -> Self {
+        Self {
+            cells: [
+                [1, 2, 1, 1, 0, 1],
+                [0, 1, 0, 2, 1, 2],
+                [1, 2, 1, 1, 0, 1],
+                [1, 0, 1, 2, 1, 2],
+                [1, 2, 1, 1, 0, 1],
+                [0, 1, 0, 2, 1, 2],
+            ],
+        }
+    }
+
+    /// Get color at absolute sensor position (x, y) using 6x6 tile wrapping.
+    ///
+    /// Returns 0=Red, 1=Green, 2=Blue.
+    #[inline]
+    pub fn color_at(&self, x: usize, y: usize) -> u8 {
+        self.cells[y % 6][x % 6]
+    }
+}
+
 /// Raw image data container.
 ///
 /// Holds the decoded raw sensor data along with associated metadata.
@@ -145,6 +179,10 @@ pub struct RawImage {
     pub bit_depth: u8,
     /// CFA pattern
     pub cfa_pattern: CfaPattern,
+    /// X-Trans CFA pattern (6x6 tile). Set for Fujifilm X-Trans sensors.
+    /// When `Some`, the Markesteijn demosaic algorithm will use this pattern
+    /// instead of `cfa_pattern`.
+    pub xtrans_pattern: Option<XTransPattern>,
     /// Black level values (per CFA color channel)
     pub black_levels: [u16; 4],
     /// White/saturation level
@@ -169,6 +207,7 @@ impl RawImage {
             active_area,
             bit_depth,
             cfa_pattern,
+            xtrans_pattern: None,
             black_levels: [0; 4],
             white_level: (1u16 << bit_depth) - 1,
             data: vec![0u16; pixel_count],

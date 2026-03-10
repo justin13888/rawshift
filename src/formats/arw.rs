@@ -783,6 +783,7 @@ impl<R: Read + Seek> ArwFile<R> {
                 active_area: metadata.active_area,
                 bit_depth: metadata.bit_depth,
                 cfa_pattern: metadata.cfa_pattern,
+                xtrans_pattern: None,
                 black_levels: metadata.black_levels,
                 white_level: metadata.white_level,
                 data: output,

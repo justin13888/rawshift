@@ -1056,6 +1056,7 @@ impl<R: Read + Seek> DngFile<R> {
             active_area,
             bit_depth: output_bit_depth,
             cfa_pattern,
+            xtrans_pattern: None,
             black_levels: [
                 metadata.black_levels.first().copied().unwrap_or(0) as u16,
                 metadata.black_levels.get(1).copied().unwrap_or(0) as u16,

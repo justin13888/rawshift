@@ -232,6 +232,7 @@ mod tests {
             active_area,
             bit_depth: 14,
             cfa_pattern: pattern,
+            xtrans_pattern: None,
             black_levels: [0; 4],
             white_level: 16383,
             data: vec![value; pixel_count],
