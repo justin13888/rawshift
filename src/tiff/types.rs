@@ -453,4 +453,40 @@ mod tests {
         let v = TiffValue::Longs(vec![1, 2]);
         assert_eq!(v.as_u32(), None); // More than one element
     }
+
+    #[test]
+    fn test_tiff_value_as_u64() {
+        // Short variant
+        let v = TiffValue::Shorts(vec![255]);
+        assert_eq!(v.as_u64(), Some(255u64));
+
+        // Long variant
+        let v = TiffValue::Longs(vec![100_000]);
+        assert_eq!(v.as_u64(), Some(100_000u64));
+
+        // Long8 variant
+        let v = TiffValue::Long8s(vec![u64::MAX]);
+        assert_eq!(v.as_u64(), Some(u64::MAX));
+
+        // More than one element → None
+        let v = TiffValue::Shorts(vec![1, 2]);
+        assert_eq!(v.as_u64(), None);
+
+        // Unrelated variant → None
+        let v = TiffValue::Ascii("hello".to_string());
+        assert_eq!(v.as_u64(), None);
+    }
+
+    #[test]
+    fn test_tiff_value_as_string() {
+        let v = TiffValue::Ascii("Canon".to_string());
+        assert_eq!(v.as_str(), Some("Canon"));
+
+        // Non-ASCII variants return None
+        let v = TiffValue::Shorts(vec![1]);
+        assert_eq!(v.as_str(), None);
+
+        let v = TiffValue::Bytes(vec![65, 66]);
+        assert_eq!(v.as_str(), None);
+    }
 }

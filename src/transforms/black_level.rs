@@ -70,4 +70,48 @@ mod tests {
         apply_black_level(&mut raw);
         assert_eq!(raw.data, vec![0, 0]);
     }
+
+    #[test]
+    fn test_black_level_all_channels() {
+        // 2x2 image: each pixel at a distinct CFA position
+        // bl_idx: (0,0)->0, (1,0)->1, (0,1)->2, (1,1)->3
+        let data = vec![1000u16, 2000, 3000, 4000];
+        let black_levels = [100u16, 200, 300, 400];
+        let mut raw = make_raw(2, 2, data, black_levels);
+        apply_black_level(&mut raw);
+        assert_eq!(raw.data[0], 900, "(0,0) R channel");
+        assert_eq!(raw.data[1], 1800, "(1,0) G channel");
+        assert_eq!(raw.data[2], 2700, "(0,1) G channel");
+        assert_eq!(raw.data[3], 3600, "(1,1) B channel");
+    }
+
+    #[test]
+    fn test_black_level_clamps_at_zero() {
+        // Pixel value less than or equal to black level should become 0
+        let data = vec![50u16, 100, 150, 200];
+        let black_levels = [100u16, 100, 100, 100];
+        let mut raw = make_raw(2, 2, data, black_levels);
+        apply_black_level(&mut raw);
+        assert_eq!(raw.data[0], 0, "50 - 100 should clamp to 0");
+        assert_eq!(raw.data[1], 0, "100 - 100 should equal 0");
+        assert_eq!(raw.data[2], 50, "150 - 100 should be 50");
+        assert_eq!(raw.data[3], 100, "200 - 100 should be 100");
+    }
+
+    #[test]
+    fn test_black_level_preserves_above_white() {
+        // Values above the typical white level are unchanged by black level subtraction
+        // (black_level subtraction doesn't clip to white level)
+        let data = vec![65000u16, 65535, 50000, 40000];
+        let black_levels = [100u16, 100, 100, 100];
+        let mut raw = make_raw(2, 2, data, black_levels);
+        apply_black_level(&mut raw);
+        assert_eq!(
+            raw.data[0], 64900,
+            "high value should have black subtracted"
+        );
+        assert_eq!(raw.data[1], 65435, "max value minus black level");
+        assert_eq!(raw.data[2], 49900);
+        assert_eq!(raw.data[3], 39900);
+    }
 }

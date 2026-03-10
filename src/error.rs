@@ -162,6 +162,13 @@ pub enum RawError {
         message: String,
     },
 
+    /// Operation is not yet implemented (stub).
+    ///
+    /// Used for stub implementations where the API surface exists but the
+    /// underlying logic has not been written yet.
+    #[error("Unsupported operation: {0}")]
+    UnsupportedOperation(String),
+
     /// Demosaicing error.
     #[error("Demosaic error: {0}")]
     DemosaicError(String),

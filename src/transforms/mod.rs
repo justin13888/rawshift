@@ -29,15 +29,24 @@
 //!      via opcodes in formats like DNG).
 //!    - See [`tonemap`] and [`opcodes`].
 
+pub mod bad_pixel;
 pub mod black_level;
+pub mod ca_correction;
 pub mod cfa;
 pub mod color;
+pub mod denoise;
 pub mod opcodes;
 pub mod tonemap;
 
-pub use black_level::apply_black_level;
-pub use color::{
-    ColorSpaceTransform, apply_color_matrix, apply_white_balance, apply_white_balance_raw,
-    compute_camera_to_srgb,
+pub use bad_pixel::{
+    BadPixelCorrectionMode, apply_bad_pixel_correction, correct_bad_pixels, detect_bad_pixels,
 };
+pub use black_level::apply_black_level;
+pub use ca_correction::apply_ca_correction;
+pub use color::{
+    ColorSpaceTransform, ColorTemperature, apply_color_matrix, apply_white_balance,
+    apply_white_balance_raw, compute_camera_to_srgb, estimate_cct_from_as_shot_neutral,
+    interpolate_color_matrix,
+};
+pub use denoise::{apply_bilateral_filter, apply_gaussian_blur};
 pub use tonemap::{apply_tone_reproduction, apply_tonemap};

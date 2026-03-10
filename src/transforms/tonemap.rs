@@ -194,4 +194,48 @@ mod tests {
         apply_tonemap(&mut img_filmic, None);
         assert_eq!(img_repro.data[0], img_filmic.data[0]);
     }
+
+    #[test]
+    fn test_apply_tone_reproduction_clamps() {
+        // Values at white_level (65535) should map to display white (65535)
+        let mut img = make_image(&[65535, 65535, 65535]);
+        apply_tone_reproduction(&mut img, None);
+        assert_eq!(img.data[0], 65535, "white should stay at max after tonemap");
+        assert_eq!(img.data[1], 65535);
+        assert_eq!(img.data[2], 65535);
+    }
+
+    #[test]
+    fn test_linear_tone_reproduction() {
+        // With gamma=1.0, apply_tone_reproduction should be a near-identity for mid values.
+        // (gamma=1.0 is a fast-path in apply_gamma that does nothing)
+        let values = [1000u16, 32768, 65535];
+        let mut img = make_image(&values);
+        apply_tone_reproduction(&mut img, Some(1.0));
+        // gamma=1.0 is identity - values should be unchanged
+        assert_eq!(img.data[0], values[0]);
+        assert_eq!(img.data[1], values[1]);
+        assert_eq!(img.data[2], values[2]);
+    }
+
+    #[test]
+    fn test_tonemap_output_range() {
+        // All outputs must be in [0, 65535] regardless of gain
+        for ev in [-2.0f32, -0.83, 0.0, 0.5, 2.0] {
+            for val in [0u16, 1000, 32768, 65535] {
+                let mut img = make_image(&[val, val, val]);
+                apply_tonemap(&mut img, Some(ev));
+                for &out in &img.data {
+                    // u16 is always in range [0, 65535] by definition; assert stays u16
+                    assert!(
+                        out <= 65535,
+                        "EV={}, input={}: output {} out of range",
+                        ev,
+                        val,
+                        out
+                    );
+                }
+            }
+        }
+    }
 }

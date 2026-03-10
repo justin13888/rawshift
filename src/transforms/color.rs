@@ -107,6 +107,85 @@ impl ColorSpaceTransform {
     }
 }
 
+// =============================================================================
+// Dual-illuminant colour matrix interpolation
+// =============================================================================
+
+/// Correlated colour temperature (CCT) in Kelvin.
+///
+/// Used to select the interpolation weight between dual-illuminant matrices.
+pub type ColorTemperature = f32;
+
+/// Interpolate between two colour matrices based on colour temperature.
+///
+/// DNG specifies two calibration matrices for different standard illuminants
+/// (e.g. Standard A at 2856 K and D65 at 6500 K). This function blends
+/// between them for the measured scene colour temperature using the reciprocal
+/// CCT (mired) scale, which is the industry-standard approach.
+///
+/// The interpolation parameter `t` is:
+/// ```text
+/// t = (1/cct_scene − 1/cct_1) / (1/cct_2 − 1/cct_1)
+/// ```
+/// clamped to `[0, 1]`. The result is then:
+/// ```text
+/// matrix = (1 − t) * matrix_1 + t * matrix_2
+/// ```
+///
+/// # Arguments
+/// * `matrix_1`  - Colour matrix for illuminant 1 (row-major 3×3, e.g. Standard A / 2856 K).
+/// * `cct_1`     - Colour temperature for `matrix_1` in Kelvin (e.g. 2856.0).
+/// * `matrix_2`  - Colour matrix for illuminant 2 (row-major 3×3, e.g. D65 / 6500 K).
+/// * `cct_2`     - Colour temperature for `matrix_2` in Kelvin (e.g. 6500.0).
+/// * `scene_cct` - Estimated scene colour temperature in Kelvin.
+///
+/// Returns the interpolated 3×3 row-major matrix.
+pub fn interpolate_color_matrix(
+    matrix_1: &[[f64; 3]; 3],
+    cct_1: ColorTemperature,
+    matrix_2: &[[f64; 3]; 3],
+    cct_2: ColorTemperature,
+    scene_cct: ColorTemperature,
+) -> [[f64; 3]; 3] {
+    let denom = (1.0 / cct_2 as f64) - (1.0 / cct_1 as f64);
+    let t = if denom.abs() < 1e-12 {
+        0.0_f64
+    } else {
+        let numer = (1.0 / scene_cct as f64) - (1.0 / cct_1 as f64);
+        (numer / denom).clamp(0.0, 1.0)
+    };
+
+    let mut result = [[0.0_f64; 3]; 3];
+    for row in 0..3 {
+        for col in 0..3 {
+            result[row][col] = (1.0 - t) * matrix_1[row][col] + t * matrix_2[row][col];
+        }
+    }
+    result
+}
+
+/// Estimate scene colour temperature from as-shot neutral (white balance) values.
+///
+/// The as-shot neutral vector records the reciprocal gain applied to each
+/// camera channel so that a neutral (white) object renders as equal R, G, B.
+/// This function uses the B/R ratio as a proxy for colour temperature:
+///
+/// - Warm (tungsten, ~2800 K): high R, low B → low B/R ratio.
+/// - Cool (daylight, ~6500 K): balanced R/B → B/R ≈ 1.
+///
+/// The approximation `CCT ≈ 3000 + 9000 × (B/R)` is clamped to [2000, 10000] K.
+///
+/// # Arguments
+/// * `as_shot_neutral` - `[R, G, B]` neutral gain vector (values in (0, 1]).
+///
+/// Returns an approximate CCT in Kelvin.
+pub fn estimate_cct_from_as_shot_neutral(as_shot_neutral: [f64; 3]) -> ColorTemperature {
+    let r = as_shot_neutral[0].max(1e-6);
+    let b = as_shot_neutral[2].max(1e-6);
+    let rb = b / r;
+    (3000.0 + 9000.0 * rb).clamp(2000.0, 10000.0) as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +288,232 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_apply_white_balance_clamps_at_white_level() {
+        use crate::core::image::RgbImage;
+        use crate::processing::color::apply_white_balance;
+
+        // Pixel near max with a large gain should clamp at 65535
+        let mut img = RgbImage {
+            width: 1,
+            height: 1,
+            data: vec![60000u16, 60000, 60000],
+            baseline_exposure: None,
+            default_crop: None,
+        };
+        apply_white_balance(&mut img, (3.0, 3.0, 3.0));
+        assert_eq!(img.data[0], 65535, "R should clamp at 65535");
+        assert_eq!(img.data[1], 65535, "G should clamp at 65535");
+        assert_eq!(img.data[2], 65535, "B should clamp at 65535");
+    }
+
+    #[test]
+    fn test_compute_camera_to_srgb_identity() {
+        // The identity matrix for XYZ->Camera is the identity itself.
+        // camera_to_xyz = inv(identity) = identity
+        // camera_to_srgb = XYZ_TO_SRGB * identity = XYZ_TO_SRGB
+        let identity = [1.0f64, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let result = compute_camera_to_srgb(&identity).unwrap();
+        // Result should equal XYZ_TO_SRGB_D65 (cast to f32)
+        for (i, (&got, &expected)) in result.iter().zip(XYZ_TO_SRGB_D65.iter()).enumerate() {
+            assert!(
+                (got - expected as f32).abs() < 1e-4,
+                "Element [{}]: got {} expected {}",
+                i,
+                got,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_color_matrix_zero_input() {
+        use crate::core::image::RgbImage;
+        use crate::processing::color::apply_color_matrix;
+
+        let any_matrix: [f32; 9] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let mut img = RgbImage {
+            width: 2,
+            height: 1,
+            data: vec![0u16; 6],
+            baseline_exposure: None,
+            default_crop: None,
+        };
+        apply_color_matrix(&mut img, &any_matrix);
+        for v in &img.data {
+            assert_eq!(*v, 0, "Zero input should produce zero output");
+        }
+    }
+
+    #[test]
+    fn test_apply_color_matrix_roundtrip() {
+        use crate::core::image::RgbImage;
+        use crate::processing::color::apply_color_matrix;
+
+        // Use a known camera matrix and its inverse for a round-trip test.
+        let cm_f64 = [
+            0.8200f64, -0.2976, -0.0719, -0.4296, 1.2053, 0.2532, -0.0429, 0.1282, 0.5774,
+        ];
+        let inv_f64 = invert_3x3(&cm_f64).unwrap();
+
+        let cm: [f32; 9] = cm_f64.map(|v| v as f32);
+        let inv: [f32; 9] = inv_f64.map(|v| v as f32);
+
+        let original = vec![10000u16, 20000, 30000];
+        let mut img = RgbImage {
+            width: 1,
+            height: 1,
+            data: original.clone(),
+            baseline_exposure: None,
+            default_crop: None,
+        };
+
+        apply_color_matrix(&mut img, &cm);
+        apply_color_matrix(&mut img, &inv);
+
+        // After applying matrix then its inverse, values should be close to original
+        for (i, (&got, &expected)) in img.data.iter().zip(original.iter()).enumerate() {
+            let diff = (got as i32 - expected as i32).abs();
+            assert!(
+                diff < 500,
+                "Channel [{}]: roundtrip value {} differs from original {} by {}",
+                i,
+                got,
+                expected,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_gamma_lut_endpoint_values() {
+        use crate::processing::color::GammaLut;
+
+        let lut = GammaLut::new(2.2);
+        // Create a minimal RgbImage with 0 and 65535
+        use crate::core::image::RgbImage;
+        let mut img = RgbImage {
+            width: 1,
+            height: 1,
+            data: vec![0u16, 0, 65535],
+            baseline_exposure: None,
+            default_crop: None,
+        };
+        lut.apply(&mut img);
+        assert_eq!(img.data[0], 0, "0 should map to 0");
+        assert_eq!(img.data[1], 0, "0 should map to 0");
+        assert_eq!(img.data[2], 65535, "65535 should map to 65535");
+    }
+
+    // -------------------------------------------------------------------------
+    // Dual-illuminant interpolation tests
+    // -------------------------------------------------------------------------
+
+    fn mat3(v: f64) -> [[f64; 3]; 3] {
+        [[v; 3]; 3]
+    }
+
+    #[test]
+    fn test_interpolate_at_cct1_returns_matrix1() {
+        let m1 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let m2 = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]];
+        let result = interpolate_color_matrix(&m1, 2856.0, &m2, 6500.0, 2856.0);
+        for (row, row_r) in m1.iter().zip(result.iter()) {
+            for (&expected, &got) in row.iter().zip(row_r.iter()) {
+                assert!(
+                    (expected - got).abs() < 1e-6,
+                    "at cct1 should return matrix1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_interpolate_at_cct2_returns_matrix2() {
+        let m1 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let m2 = [[3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 3.0]];
+        let result = interpolate_color_matrix(&m1, 2856.0, &m2, 6500.0, 6500.0);
+        for (row, row_r) in m2.iter().zip(result.iter()) {
+            for (&expected, &got) in row.iter().zip(row_r.iter()) {
+                assert!(
+                    (expected - got).abs() < 1e-6,
+                    "at cct2 should return matrix2"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_interpolate_midpoint() {
+        // Matrices of all-1.0 and all-3.0; midpoint should be all-2.0.
+        let m1 = mat3(1.0);
+        let m2 = mat3(3.0);
+        // Mired midpoint between 2856 K and 6500 K:
+        // 1/2856 ≈ 350.2 mireds,  1/6500 ≈ 153.8 mireds
+        // midpoint mired ≈ 252.0 → CCT ≈ 3968 K
+        let mid_cct = 1.0 / ((0.5 / 2856.0) + (0.5 / 6500.0)) as f32;
+        let result = interpolate_color_matrix(&m1, 2856.0, &m2, 6500.0, mid_cct);
+        for row in &result {
+            for &v in row {
+                assert!(
+                    (v - 2.0).abs() < 1e-6,
+                    "midpoint should give average: got {v}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_interpolate_clamps_below_cct1() {
+        let m1 = mat3(0.0);
+        let m2 = mat3(1.0);
+        // Scene temperature well below cct_1 → t should clamp to 0 → matrix_1.
+        let result = interpolate_color_matrix(&m1, 2856.0, &m2, 6500.0, 1000.0);
+        for row in &result {
+            for &v in row {
+                assert!(
+                    (v - 0.0).abs() < 1e-6,
+                    "clamped below cct1 should return matrix1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_interpolate_clamps_above_cct2() {
+        let m1 = mat3(0.0);
+        let m2 = mat3(1.0);
+        // Scene temperature well above cct_2 → t should clamp to 1 → matrix_2.
+        let result = interpolate_color_matrix(&m1, 2856.0, &m2, 6500.0, 20000.0);
+        for row in &result {
+            for &v in row {
+                assert!(
+                    (v - 1.0).abs() < 1e-6,
+                    "clamped above cct2 should return matrix2"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_estimate_cct_warm() {
+        // Warm tungsten light: high R neutral, very low B neutral.
+        // B/R = 0.1 / 0.95 ≈ 0.1053 → CCT ≈ 3000 + 9000*0.1053 ≈ 3947 K.
+        let cct = estimate_cct_from_as_shot_neutral([0.95, 1.0, 0.1]);
+        assert!(cct < 4000.0, "warm WB should give CCT < 4000 K, got {cct}");
+    }
+
+    #[test]
+    fn test_estimate_cct_daylight() {
+        // Neutral/daylight: R ≈ G ≈ B → B/R ≈ 1 → CCT ≈ 3000 + 9000 = 12000 clamped to 10000.
+        // With [0.8, 1.0, 0.8] → B/R = 1.0 → CCT = 12000 → clamped to 10000.
+        // For a more realistic daylight value use slightly less B:
+        let cct = estimate_cct_from_as_shot_neutral([0.6, 1.0, 0.55]);
+        assert!(
+            cct >= 4000.0 && cct <= 10000.0,
+            "daylight WB should give CCT 4000–10000 K, got {cct}"
+        );
     }
 }

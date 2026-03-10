@@ -1134,4 +1134,26 @@ mod tests {
         assert_eq!(img.height, original_h);
         assert_eq!(img.data, original_data);
     }
+
+    #[test]
+    fn test_open_empty_reader_returns_error() {
+        // An empty reader cannot be a valid RAW file
+        let cursor = Cursor::new(vec![]);
+        let result = RawFile::open(cursor);
+        assert!(
+            result.is_err(),
+            "Opening an empty reader should return an error"
+        );
+    }
+
+    #[test]
+    fn test_detect_format_empty_returns_error() {
+        // detect_format on an empty buffer should return an Io error (UnexpectedEof)
+        let mut cursor = Cursor::new(vec![]);
+        let result = RawFile::detect_format(&mut cursor);
+        assert!(
+            result.is_err(),
+            "detect_format on empty input should return an error"
+        );
+    }
 }

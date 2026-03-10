@@ -12,6 +12,10 @@ categories = ["multimedia::images", "encoding", "parser-implementations"]
 readme = "README.md"
 rust-version = "1.85"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 binrw = "0.15"
 image-webp = "0.2"

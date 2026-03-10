@@ -388,4 +388,114 @@ mod tests {
         assert_eq!(avg4(0, 100, 200, 300), 150);
         assert_eq!(avg4(0, 0, 0, 65535), 16383);
     }
+
+    #[test]
+    fn test_bilinear_all_cfa_patterns() {
+        // All 4 CFA patterns should produce valid RGB output with correct dimensions
+        let patterns = [
+            CfaPattern::Rggb,
+            CfaPattern::Grbg,
+            CfaPattern::Gbrg,
+            CfaPattern::Bggr,
+        ];
+
+        for pattern in patterns {
+            let raw = create_test_raw(6, 6, pattern, 8000);
+            let rgb = Bilinear.demosaic(&raw);
+
+            assert_eq!(rgb.width, 6, "width for {:?}", pattern);
+            assert_eq!(rgb.height, 6, "height for {:?}", pattern);
+            assert_eq!(rgb.data.len(), 6 * 6 * 3, "data length for {:?}", pattern);
+
+            // All output pixels must be in valid u16 range (which they always are,
+            // but also check that at least some pixels are non-zero for a non-zero input)
+            let non_zero = rgb.data.iter().any(|&v| v > 0);
+            assert!(
+                non_zero,
+                "Output for {:?} should have non-zero pixels",
+                pattern
+            );
+        }
+    }
+
+    #[test]
+    fn test_bilinear_with_active_area() {
+        // Test various active area offsets
+        let mut raw = create_test_raw(12, 12, CfaPattern::Rggb, 5000);
+
+        // Active area starts at (2, 4) with size 6x6
+        raw.active_area = Rect::from_coords(2, 4, 6, 6);
+
+        let rgb = Bilinear.demosaic(&raw);
+
+        assert_eq!(rgb.width, 6, "output width should match active area width");
+        assert_eq!(
+            rgb.height, 6,
+            "output height should match active area height"
+        );
+        assert_eq!(
+            rgb.data.len(),
+            6 * 6 * 3,
+            "output should have correct data length"
+        );
+
+        // Output should have reasonable values
+        for &v in &rgb.data {
+            assert!(v <= 65535, "pixel value out of range");
+        }
+    }
+
+    #[test]
+    fn test_bilinear_gradient_smooth() {
+        // A horizontally-varying input should produce a smooth (monotonically varying)
+        // green channel in the output, since bilinear averages neighbors.
+        let width = 8u32;
+        let height = 4u32;
+        let size = Size::new(width, height);
+        let active_area = Rect::new(Point::ORIGIN, size);
+
+        // Fill with a horizontal gradient: pixel value increases with x
+        let mut data = vec![0u16; (width * height) as usize];
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                data[y * width as usize + x] = (x as u16) * 1000;
+            }
+        }
+
+        let raw = RawImage {
+            size,
+            active_area,
+            bit_depth: 14,
+            cfa_pattern: CfaPattern::Rggb,
+            xtrans_pattern: None,
+            black_levels: [0; 4],
+            white_level: 16383,
+            data,
+            baseline_exposure: None,
+            default_crop: None,
+        };
+
+        let rgb = Bilinear.demosaic(&raw);
+
+        // Check that the green channel (index 1) generally increases left to right
+        // for a middle row. Allow for some non-monotonicity at edges.
+        let mid_row = 2usize;
+        let row_start = mid_row * width as usize * 3;
+
+        // Compare interior pixels: pixel at x+1 should have green >= pixel at x
+        // (with tolerance for boundary effects)
+        for x in 1..(width as usize - 2) {
+            let g_left = rgb.data[row_start + (x - 1) * 3 + 1];
+            let g_right = rgb.data[row_start + (x + 1) * 3 + 1];
+            assert!(
+                g_right >= g_left || (g_right as i32 - g_left as i32).abs() < 2000,
+                "gradient smoothness: g[{}]={} should not greatly exceed g[{}]={} in row {}",
+                x - 1,
+                g_left,
+                x + 1,
+                g_right,
+                mid_row
+            );
+        }
+    }
 }

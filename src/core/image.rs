@@ -294,4 +294,75 @@ mod tests {
         assert_eq!(img.get_pixel(5, 5), Some(1000));
         assert_eq!(img.get_pixel(100, 100), None);
     }
+
+    #[test]
+    fn test_raw_image_pixel_access() {
+        let size = Size::new(4, 4);
+        let active = Rect::from_coords(0, 0, 4, 4);
+        let mut img = RawImage::new(size, active, 14, CfaPattern::Rggb);
+
+        // Set several pixels and verify get_pixel returns correct values
+        img.set_pixel(0, 0, 100);
+        img.set_pixel(3, 0, 200);
+        img.set_pixel(0, 3, 300);
+        img.set_pixel(3, 3, 400);
+        img.set_pixel(2, 1, 500);
+
+        assert_eq!(img.get_pixel(0, 0), Some(100));
+        assert_eq!(img.get_pixel(3, 0), Some(200));
+        assert_eq!(img.get_pixel(0, 3), Some(300));
+        assert_eq!(img.get_pixel(3, 3), Some(400));
+        assert_eq!(img.get_pixel(2, 1), Some(500));
+
+        // Out-of-bounds returns None
+        assert_eq!(img.get_pixel(4, 0), None);
+        assert_eq!(img.get_pixel(0, 4), None);
+        assert_eq!(img.get_pixel(u32::MAX, u32::MAX), None);
+    }
+
+    #[test]
+    fn test_rgb_image_indexing() {
+        // RgbImage stores interleaved RGB: R G B R G B ...
+        let data = vec![
+            100u16, 200, 300, // pixel 0: R=100, G=200, B=300
+            400, 500, 600, // pixel 1: R=400, G=500, B=600
+        ];
+        let img = RgbImage::new(2, 1, data.clone());
+
+        assert_eq!(img.data[0], 100, "pixel 0 R");
+        assert_eq!(img.data[1], 200, "pixel 0 G");
+        assert_eq!(img.data[2], 300, "pixel 0 B");
+        assert_eq!(img.data[3], 400, "pixel 1 R");
+        assert_eq!(img.data[4], 500, "pixel 1 G");
+        assert_eq!(img.data[5], 600, "pixel 1 B");
+
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 1);
+        assert_eq!(img.data.len(), 6);
+    }
+
+    #[test]
+    fn test_size_pixel_count() {
+        let s = Size::new(1920, 1080);
+        assert_eq!(s.pixel_count(), 1920 * 1080);
+
+        // Zero dimension
+        let s = Size::new(0, 100);
+        assert_eq!(s.pixel_count(), 0);
+
+        // Large dimensions (check u64 doesn't overflow)
+        let s = Size::new(10000, 10000);
+        assert_eq!(s.pixel_count(), 100_000_000u64);
+    }
+
+    #[test]
+    fn test_rect_dimensions() {
+        let r = Rect::from_coords(10, 20, 100, 200);
+        assert_eq!(r.origin.x, 10);
+        assert_eq!(r.origin.y, 20);
+        assert_eq!(r.size.width, 100);
+        assert_eq!(r.size.height, 200);
+        assert_eq!(r.right(), 110);
+        assert_eq!(r.bottom(), 220);
+    }
 }

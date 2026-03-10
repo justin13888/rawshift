@@ -403,4 +403,41 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_lookup_known_make_model() {
+        // The SONY ILCE-7RM5 is in the database and has a color matrix
+        let cal = get_camera_calibration("ILCE-7RM5");
+        assert!(cal.is_some(), "ILCE-7RM5 should be in the camera database");
+        let cal = cal.unwrap();
+        assert!(
+            cal.color_matrix_2.is_some(),
+            "ILCE-7RM5 should have a color matrix"
+        );
+    }
+
+    #[test]
+    fn test_lookup_unknown_returns_none() {
+        assert!(
+            get_camera_calibration("TOTALLY_FAKE_CAMERA_XYZ").is_none(),
+            "Unknown make/model should return None"
+        );
+        assert!(
+            get_camera_calibration("").is_none(),
+            "Empty string should return None"
+        );
+    }
+
+    #[test]
+    fn test_color_matrix_has_expected_shape() {
+        // Every color matrix in the database must be exactly 9 elements (3x3 row-major)
+        for cam in all_cameras() {
+            if let Some(m) = &cam.color_matrix_1 {
+                assert_eq!(m.len(), 9, "ColorMatrix1 for {} is not 3x3", cam.model);
+            }
+            if let Some(m) = &cam.color_matrix_2 {
+                assert_eq!(m.len(), 9, "ColorMatrix2 for {} is not 3x3", cam.model);
+            }
+        }
+    }
 }
