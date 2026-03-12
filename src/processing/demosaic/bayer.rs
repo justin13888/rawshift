@@ -46,6 +46,8 @@ impl Demosaic for Amaze {
             return Err(DemosaicError::InvalidDimensions);
         }
 
+        let white = raw.white_level as f32;
+
         // Determine color at each CFA position: 0=Red, 1=Green(R-row), 2=Blue, 3=Green(B-row)
         let fc = |x: usize, y: usize| -> u8 {
             let ax = x + x_off;
@@ -455,9 +457,9 @@ impl Demosaic for Amaze {
                 for x in 0..width {
                     let idx = y * width + x;
                     let out_idx = x * 3;
-                    row[out_idx] = red_out[idx].round().clamp(0.0, 65535.0) as u16;
-                    row[out_idx + 1] = green[idx].round().clamp(0.0, 65535.0) as u16;
-                    row[out_idx + 2] = blue_out[idx].round().clamp(0.0, 65535.0) as u16;
+                    row[out_idx] = red_out[idx].round().clamp(0.0, white) as u16;
+                    row[out_idx + 1] = green[idx].round().clamp(0.0, white) as u16;
+                    row[out_idx + 2] = blue_out[idx].round().clamp(0.0, white) as u16;
                 }
             });
 
@@ -1225,6 +1227,24 @@ mod tests {
         assert_eq!(rgb.width, 20);
         assert_eq!(rgb.height, 20);
         assert_eq!(rgb.data.len(), 20 * 20 * 3);
+    }
+
+    #[test]
+    fn test_amaze_respects_white_level_clamp() {
+        // Feed values at white_level — output must never exceed white_level
+        let white_level: u16 = 16383;
+        let raw = create_test_raw(20, 20, CfaPattern::Rggb, white_level);
+        let mut output = vec![0u16; 20 * 20 * 3];
+        Amaze.demosaic_into(&raw, &mut output).unwrap();
+        for (i, &v) in output.iter().enumerate() {
+            assert!(
+                v <= white_level,
+                "pixel {} has value {} exceeding white_level {}",
+                i,
+                v,
+                white_level
+            );
+        }
     }
 
     // ── LMMSE tests ───────────────────────────────────────────────────────────
