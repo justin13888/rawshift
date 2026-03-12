@@ -420,17 +420,91 @@ fn decode_jxl(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── TIFF ─────────────────────────────────────────────────────────────────────
 
-fn decode_tiff(_data: &[u8]) -> RawResult<RgbImage> {
-    // No general TIFF decode crate is available in the dependency tree.
-    // (zune-image does not include a TIFF decoder; tiff/image crates are not
-    // listed as dependencies.)
-    // The project's own TIFF parser (`src/tiff/`) is focused on metadata and
-    // TIFF-based RAW formats, not generic RGB TIFF images.
-    Err(RawError::UnsupportedFormat(
-        "Standard TIFF decoding is not yet implemented. \
-         Add the `tiff` crate as a dependency to enable this."
-            .to_string(),
-    ))
+fn decode_tiff(data: &[u8]) -> RawResult<RgbImage> {
+    use tiff::ColorType;
+    use tiff::decoder::{Decoder, DecodingResult};
+
+    let cursor = Cursor::new(data);
+    let mut decoder = Decoder::new(cursor).map_err(|e| RawError::ImageDecodeError {
+        format: "TIFF",
+        message: format!("{e}"),
+    })?;
+
+    let (w, h) = decoder
+        .dimensions()
+        .map_err(|e| RawError::ImageDecodeError {
+            format: "TIFF",
+            message: format!("{e}"),
+        })?;
+
+    let color_type = decoder
+        .colortype()
+        .map_err(|e| RawError::ImageDecodeError {
+            format: "TIFF",
+            message: format!("{e}"),
+        })?;
+
+    let result = decoder
+        .read_image()
+        .map_err(|e| RawError::ImageDecodeError {
+            format: "TIFF",
+            message: format!("{e}"),
+        })?;
+
+    // Extract raw samples as u16 values.
+    let samples_u16: Vec<u16> = match result {
+        DecodingResult::U8(px) => px.iter().map(|&v| u8_to_u16(v)).collect(),
+        DecodingResult::U16(px) => px,
+        DecodingResult::U32(px) => px.iter().map(|&v| (v >> 16) as u16).collect(),
+        DecodingResult::F32(px) => px
+            .iter()
+            .map(|&v| (v.clamp(0.0, 1.0) * 65535.0) as u16)
+            .collect(),
+        _ => {
+            return Err(RawError::ImageDecodeError {
+                format: "TIFF",
+                message: format!("unsupported TIFF sample type for color type {color_type:?}"),
+            });
+        }
+    };
+
+    // Convert to interleaved RGB u16 based on the color type.
+    let data_u16: Vec<u16> = match color_type {
+        ColorType::RGB(_) => samples_u16,
+        ColorType::RGBA(_) => samples_u16
+            .chunks_exact(4)
+            .flat_map(|px| [px[0], px[1], px[2]])
+            .collect(),
+        ColorType::Gray(_) => samples_u16.iter().flat_map(|&v| [v, v, v]).collect(),
+        ColorType::GrayA(_) => samples_u16
+            .chunks_exact(2)
+            .flat_map(|px| [px[0], px[0], px[0]])
+            .collect(),
+        ColorType::CMYK(_) => {
+            // Simple CMYK→RGB: R = (1-C)*(1-K), G = (1-M)*(1-K), B = (1-Y)*(1-K)
+            samples_u16
+                .chunks_exact(4)
+                .flat_map(|px| {
+                    let c = px[0] as f64 / 65535.0;
+                    let m = px[1] as f64 / 65535.0;
+                    let y = px[2] as f64 / 65535.0;
+                    let k = px[3] as f64 / 65535.0;
+                    let r = ((1.0 - c) * (1.0 - k) * 65535.0) as u16;
+                    let g = ((1.0 - m) * (1.0 - k) * 65535.0) as u16;
+                    let b = ((1.0 - y) * (1.0 - k) * 65535.0) as u16;
+                    [r, g, b]
+                })
+                .collect()
+        }
+        _ => {
+            return Err(RawError::ImageDecodeError {
+                format: "TIFF",
+                message: format!("unsupported TIFF color type: {color_type:?}"),
+            });
+        }
+    };
+
+    Ok(RgbImage::new(w, h, data_u16))
 }
 
 // ── AVIF ─────────────────────────────────────────────────────────────────────
@@ -847,12 +921,147 @@ mod tests {
     // ── stub error paths ──────────────────────────────────────────────────
 
     #[test]
-    fn tiff_returns_unsupported() {
-        // Feed dummy TIFF magic bytes
+    fn tiff_invalid_data_returns_error() {
+        // Truncated TIFF magic bytes should return a decode error, not a panic.
         let magic = [0x49u8, 0x49, 0x2A, 0x00, 0, 0, 0, 8];
         let result = decode_standard_image(&magic, StandardFormat::Tiff);
         assert!(result.is_err());
-        assert!(matches!(result, Err(RawError::UnsupportedFormat(_))));
+    }
+
+    /// Build a minimal valid TIFF file (2×2 RGB, 8-bit) in memory using the tiff crate encoder.
+    fn make_minimal_tiff_rgb8() -> Vec<u8> {
+        use std::io::Cursor;
+        use tiff::encoder::{TiffEncoder, colortype::RGB8};
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut enc = TiffEncoder::new(&mut cursor).unwrap();
+            let pixels: Vec<u8> = vec![
+                255, 0, 0, // red
+                0, 255, 0, // green
+                0, 0, 255, // blue
+                255, 255, 255, // white
+            ];
+            enc.write_image::<RGB8>(2, 2, &pixels).unwrap();
+        }
+        cursor.into_inner()
+    }
+
+    #[test]
+    fn tiff_decode_dimensions() {
+        let tiff_data = make_minimal_tiff_rgb8();
+        let img = decode_standard_image(&tiff_data, StandardFormat::Tiff)
+            .expect("TIFF decode must succeed");
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 2);
+        assert_eq!(img.data.len(), 2 * 2 * 3);
+    }
+
+    #[test]
+    fn tiff_decode_first_pixel_is_red() {
+        let tiff_data = make_minimal_tiff_rgb8();
+        let img = decode_standard_image(&tiff_data, StandardFormat::Tiff).unwrap();
+        assert_eq!(img.data[0], u8_to_u16(255), "R of top-left pixel");
+        assert_eq!(img.data[1], u8_to_u16(0), "G of top-left pixel");
+        assert_eq!(img.data[2], u8_to_u16(0), "B of top-left pixel");
+    }
+
+    #[test]
+    fn tiff_detect_then_decode() {
+        let tiff_data = make_minimal_tiff_rgb8();
+        let fmt = detect_standard_format(&tiff_data);
+        assert_eq!(fmt, Some(StandardFormat::Tiff));
+        let img = decode_standard_image(&tiff_data, fmt.unwrap()).unwrap();
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 2);
+    }
+
+    /// Build a grayscale TIFF (4×4, 8-bit) in memory.
+    fn make_tiff_gray8() -> Vec<u8> {
+        use std::io::Cursor;
+        use tiff::encoder::{TiffEncoder, colortype::Gray8};
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut enc = TiffEncoder::new(&mut cursor).unwrap();
+            let pixels: Vec<u8> = (0..16).map(|i| (i * 17) as u8).collect();
+            enc.write_image::<Gray8>(4, 4, &pixels).unwrap();
+        }
+        cursor.into_inner()
+    }
+
+    #[test]
+    fn tiff_decode_grayscale_expands_to_rgb() {
+        let tiff_data = make_tiff_gray8();
+        let img = decode_standard_image(&tiff_data, StandardFormat::Tiff).unwrap();
+        assert_eq!(img.width, 4);
+        assert_eq!(img.height, 4);
+        assert_eq!(img.data.len(), 4 * 4 * 3);
+        // Grayscale: R == G == B for each pixel
+        for px in img.data.chunks_exact(3) {
+            assert_eq!(px[0], px[1]);
+            assert_eq!(px[1], px[2]);
+        }
+    }
+
+    /// Build an RGBA TIFF (2×2, 8-bit) in memory.
+    fn make_tiff_rgba8() -> Vec<u8> {
+        use std::io::Cursor;
+        use tiff::encoder::{TiffEncoder, colortype::RGBA8};
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut enc = TiffEncoder::new(&mut cursor).unwrap();
+            let pixels: Vec<u8> = vec![
+                255, 0, 0, 128, // red, half alpha
+                0, 255, 0, 255, // green, full alpha
+                0, 0, 255, 0, // blue, zero alpha
+                255, 255, 255, 255, // white, full alpha
+            ];
+            enc.write_image::<RGBA8>(2, 2, &pixels).unwrap();
+        }
+        cursor.into_inner()
+    }
+
+    #[test]
+    fn tiff_decode_rgba_drops_alpha() {
+        let tiff_data = make_tiff_rgba8();
+        let img = decode_standard_image(&tiff_data, StandardFormat::Tiff).unwrap();
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 2);
+        // Should be RGB only (alpha dropped)
+        assert_eq!(img.data.len(), 2 * 2 * 3);
+        // First pixel should be red
+        assert_eq!(img.data[0], u8_to_u16(255));
+        assert_eq!(img.data[1], u8_to_u16(0));
+        assert_eq!(img.data[2], u8_to_u16(0));
+    }
+
+    /// Build a 16-bit RGB TIFF (2×2) in memory.
+    fn make_tiff_rgb16() -> Vec<u8> {
+        use std::io::Cursor;
+        use tiff::encoder::{TiffEncoder, colortype::RGB16};
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut enc = TiffEncoder::new(&mut cursor).unwrap();
+            let pixels: Vec<u16> = vec![
+                65535, 0, 0, // red
+                0, 65535, 0, // green
+                0, 0, 65535, // blue
+                32768, 32768, 32768, // gray
+            ];
+            enc.write_image::<RGB16>(2, 2, &pixels).unwrap();
+        }
+        cursor.into_inner()
+    }
+
+    #[test]
+    fn tiff_decode_16bit_preserves_values() {
+        let tiff_data = make_tiff_rgb16();
+        let img = decode_standard_image(&tiff_data, StandardFormat::Tiff).unwrap();
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 2);
+        // 16-bit values should be preserved exactly
+        assert_eq!(img.data[0], 65535); // R of red pixel
+        assert_eq!(img.data[1], 0); // G of red pixel
+        assert_eq!(img.data[2], 0); // B of red pixel
     }
 
     #[test]

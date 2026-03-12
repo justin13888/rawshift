@@ -24,10 +24,13 @@ use crate::core::metadata::ImageMetadata;
 use crate::error::{RawError, RawResult};
 use crate::processing::ProcessingOptions;
 use crate::tiff::{TiffParser, TiffTag};
+use crate::transforms::bad_pixel::apply_bad_pixel_correction;
 use crate::transforms::black_level::apply_black_level;
+use crate::transforms::ca_correction::apply_ca_correction;
 use crate::transforms::color::{
     apply_color_matrix, apply_white_balance, apply_white_balance_raw, compute_camera_to_srgb,
 };
+use crate::transforms::denoise::apply_bilateral_filter;
 use crate::transforms::tonemap::apply_tone_reproduction;
 use export::EncodeOptions;
 use std::path::Path;
@@ -244,6 +247,12 @@ impl<R: Read + Seek> RawFile<R> {
             // Per-channel black level subtraction
             apply_black_level(&mut raw_image);
 
+            // Bad pixel correction (on raw CFA data, before demosaic)
+            if let Some(mode) = processing_options.bad_pixel_correction {
+                tracing::trace!("Applying bad pixel correction: {:?}", mode);
+                apply_bad_pixel_correction(&mut raw_image, mode, 0.5);
+            }
+
             // Apply WB gains to CFA data before normalization.
             // Applying high WB multipliers (e.g. Red 2.35) to already 16-bit-normalized data
             // causes near-white pixels to clip to 65535, producing pink/cyan highlights.
@@ -399,6 +408,23 @@ impl<R: Read + Seek> RawFile<R> {
         if let Some(matrix) = color_matrix {
             tracing::trace!("Applying color matrix");
             apply_color_matrix(&mut rgb_image, &matrix);
+        }
+
+        // Noise reduction (bilateral filter on RGB data)
+        if let Some(sigma) = processing_options.denoise_sigma {
+            tracing::trace!("Applying bilateral denoise: sigma={}", sigma);
+            let radius = (sigma * 2.0).ceil() as u32;
+            apply_bilateral_filter(&mut rgb_image, sigma, sigma * 10000.0, radius);
+        }
+
+        // Chromatic aberration correction (on RGB data)
+        if let Some((red_scale, blue_scale)) = processing_options.ca_correction {
+            tracing::trace!(
+                "Applying CA correction: red_scale={}, blue_scale={}",
+                red_scale,
+                blue_scale
+            );
+            apply_ca_correction(&mut rgb_image, red_scale, blue_scale);
         }
 
         // Tone Mapping + sRGB Encoding
