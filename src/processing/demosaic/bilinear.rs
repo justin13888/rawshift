@@ -445,10 +445,8 @@ mod tests {
             "output should have correct data length"
         );
 
-        // Output should have reasonable values
-        for &v in &rgb.data {
-            assert!(v <= 65535, "pixel value out of range");
-        }
+        // Output values are u16, so always in [0, 65535] by definition
+        assert!(!rgb.data.is_empty(), "output should have pixel data");
     }
 
     #[test]

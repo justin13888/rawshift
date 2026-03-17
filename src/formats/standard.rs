@@ -881,11 +881,13 @@ mod tests {
         let mut encoder = Encoder::new(&mut out, 2, 2, palette).expect("gif encoder init");
         encoder.set_repeat(Repeat::Finite(0)).expect("set repeat");
 
-        let mut frame = Frame::<'static>::default();
-        frame.width = 2;
-        frame.height = 2;
-        // Pixel indices row-major: top-left=0, top-right=1, bottom-left=2, bottom-right=3
-        frame.buffer = Cow::Owned(vec![0u8, 1, 2, 3]);
+        let frame = Frame {
+            width: 2,
+            height: 2,
+            // Pixel indices row-major: top-left=0, top-right=1, bottom-left=2, bottom-right=3
+            buffer: Cow::Owned(vec![0u8, 1, 2, 3]),
+            ..Frame::default()
+        };
         encoder.write_frame(&frame).expect("write gif frame");
         drop(encoder);
         out

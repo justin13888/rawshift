@@ -149,7 +149,6 @@ mod tests {
     fn test_apply_gains_rgb_clamps() {
         let mut data = vec![50000u16, 50000, 50000];
         apply_gains_rgb(&mut data, [2.0, 2.0, 2.0], 65535);
-        assert!(data.iter().all(|&v| v <= 65535));
         assert_eq!(data, vec![65535, 65535, 65535]);
     }
 
@@ -213,7 +212,7 @@ mod tests {
         let scale = [[10.0f64, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]];
         let mut data = vec![10000u16, 10000, 10000];
         apply_matrix_rgb(&mut data, &scale, 65535);
-        assert!(data.iter().all(|&v| v <= 65535));
+        assert_eq!(data, vec![65535, 65535, 65535]);
     }
 
     #[test]

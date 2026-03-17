@@ -219,16 +219,13 @@ mod tests {
             for val in [0u16, 1000, 32768, 65535] {
                 let mut img = make_image(&[val, val, val]);
                 apply_tonemap(&mut img, Some(ev));
-                for &out in &img.data {
-                    // u16 is always in range [0, 65535] by definition; assert stays u16
-                    assert!(
-                        out <= 65535,
-                        "EV={}, input={}: output {} out of range",
-                        ev,
-                        val,
-                        out
-                    );
-                }
+                // u16 is always in range [0, 65535] by definition
+                assert!(
+                    !img.data.is_empty(),
+                    "EV={}, input={}: output should not be empty",
+                    ev,
+                    val
+                );
             }
         }
     }

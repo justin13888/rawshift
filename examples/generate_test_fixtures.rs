@@ -141,11 +141,13 @@ fn generate_gif(data_dir: &Path, fixture_dir: &Path) {
     let mut encoder = Encoder::new(&mut out, 4, 4, palette).expect("gif encoder");
     encoder.set_repeat(Repeat::Finite(0)).unwrap();
 
-    let mut frame = Frame::default();
-    frame.width = 4;
-    frame.height = 4;
-    // 4x4 grid: alternating pattern
-    frame.buffer = Cow::Owned(vec![0, 1, 2, 3, 1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2]);
+    let frame = Frame {
+        width: 4,
+        height: 4,
+        // 4x4 grid: alternating pattern
+        buffer: Cow::Owned(vec![0, 1, 2, 3, 1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2]),
+        ..Frame::default()
+    };
     encoder.write_frame(&frame).unwrap();
     drop(encoder);
 
