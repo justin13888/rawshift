@@ -5,10 +5,72 @@
 //! Extend as new formats reveal additional fields.
 
 /// Unsigned rational (numerator, denominator).
+#[cfg(feature = "tiff-parser")]
 pub use crate::tiff::Rational as URational;
 
 /// Signed rational (numerator, denominator).
+#[cfg(feature = "tiff-parser")]
 pub use crate::tiff::SRational;
+
+/// Unsigned rational (numerator, denominator) — standalone definition when tiff-parser is not active.
+#[cfg(not(feature = "tiff-parser"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct URational {
+    /// Numerator
+    pub numerator: u32,
+    /// Denominator
+    pub denominator: u32,
+}
+
+#[cfg(not(feature = "tiff-parser"))]
+impl URational {
+    /// Create a new URational.
+    pub fn new(numerator: u32, denominator: u32) -> Self {
+        Self {
+            numerator,
+            denominator,
+        }
+    }
+    /// Convert to f64.
+    pub fn to_f64(&self) -> f64 {
+        if self.denominator == 0 {
+            f64::NAN
+        } else {
+            self.numerator as f64 / self.denominator as f64
+        }
+    }
+}
+
+/// Signed rational (numerator, denominator) — standalone definition when tiff-parser is not active.
+#[cfg(not(feature = "tiff-parser"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SRational {
+    /// Numerator
+    pub numerator: i32,
+    /// Denominator
+    pub denominator: i32,
+}
+
+#[cfg(not(feature = "tiff-parser"))]
+impl SRational {
+    /// Create a new SRational.
+    pub fn new(numerator: i32, denominator: i32) -> Self {
+        Self {
+            numerator,
+            denominator,
+        }
+    }
+    /// Convert to f64.
+    pub fn to_f64(&self) -> f64 {
+        if self.denominator == 0 {
+            f64::NAN
+        } else {
+            self.numerator as f64 / self.denominator as f64
+        }
+    }
+}
 
 /// Camera identification information.
 #[derive(Debug, Clone, Default, PartialEq)]

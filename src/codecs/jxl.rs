@@ -3,12 +3,11 @@
 //! This module wraps the jxl-oxide crate to decode JPEG XL compressed
 //! tiles used in DNG 1.7+ files (compression code 52546).
 
-use crate::error::{FormatError, RawError, RawResult};
-use jxl_oxide::JxlImage;
-
 /// JPEG XL tile decoder for DNG files.
+#[cfg(feature = "dng")]
 pub struct JxlDecoder;
 
+#[cfg(feature = "dng")]
 impl JxlDecoder {
     /// Decode a single JPEG XL tile to u16 RGB data.
     ///
@@ -16,7 +15,10 @@ impl JxlDecoder {
     /// Output is 16-bit values per channel, scaled from the internal f32 representation.
     ///
     /// Returns (width, height, channels, pixel_data).
-    pub fn decode_tile(data: &[u8]) -> RawResult<(usize, usize, usize, Vec<u16>)> {
+    pub fn decode_tile(data: &[u8]) -> crate::error::RawResult<(usize, usize, usize, Vec<u16>)> {
+        use crate::error::{FormatError, RawError};
+        use jxl_oxide::JxlImage;
+
         let image = JxlImage::builder()
             .read(std::io::Cursor::new(data))
             .map_err(|e| {
@@ -60,7 +62,10 @@ impl JxlDecoder {
     pub fn decode_tile_with_depth(
         data: &[u8],
         target_bit_depth: u8,
-    ) -> RawResult<(usize, usize, usize, Vec<u16>)> {
+    ) -> crate::error::RawResult<(usize, usize, usize, Vec<u16>)> {
+        use crate::error::{FormatError, RawError};
+        use jxl_oxide::JxlImage;
+
         let image = JxlImage::builder()
             .read(std::io::Cursor::new(data))
             .map_err(|e| {
@@ -96,9 +101,9 @@ impl JxlDecoder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "dng"))]
 mod tests {
-    use super::*;
+    use super::JxlDecoder;
 
     #[test]
     fn test_jxl_decoder_invalid_data() {

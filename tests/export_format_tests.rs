@@ -8,7 +8,7 @@
 use rawshift::core::image::RgbImage;
 use rawshift::core::metadata::ImageMetadata;
 use rawshift::formats::encode_rgb_image;
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 use rawshift::formats::export::AvifOptions;
 #[cfg(feature = "jxl-encode")]
 use rawshift::formats::export::JxlOptions;
@@ -507,7 +507,7 @@ mod png_tests {
 }
 
 /// Check if AVIF data contains a `colr rICC` or `colr prof` box (embedded ICC profile).
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 fn avif_has_icc(data: &[u8]) -> bool {
     data.windows(8)
         .any(|w| &w[..4] == b"colr" && (&w[4..8] == b"rICC" || &w[4..8] == b"prof"))
@@ -540,7 +540,7 @@ fn jxl_is_container(data: &[u8]) -> bool {
 // AVIF Export Tests
 // ============================================================================
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 mod avif_tests {
     use super::*;
 
@@ -749,10 +749,11 @@ mod encode_options_tests {
         let _ = EncodeOptions::jpeg();
         let _ = EncodeOptions::webp_lossy();
         let _ = EncodeOptions::webp_lossless();
-        #[cfg(feature = "avif")]
+        #[cfg(feature = "avif-encode")]
         let _ = EncodeOptions::avif();
         #[cfg(feature = "jxl-encode")]
         let _ = EncodeOptions::jxl();
+        #[cfg(feature = "dng")]
         let _ = EncodeOptions::dng();
     }
 

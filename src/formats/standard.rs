@@ -111,13 +111,19 @@ impl StandardFormat {
     /// Whether this format can be decoded to an [`RgbImage`].
     pub fn supports_decode(self) -> bool {
         match self {
-            StandardFormat::Gif
-            | StandardFormat::Jpeg
-            | StandardFormat::Png
-            | StandardFormat::WebP
-            | StandardFormat::Jxl
-            | StandardFormat::Tiff => true,
-            #[cfg(feature = "avif")]
+            #[cfg(feature = "gif-decode")]
+            StandardFormat::Gif => true,
+            #[cfg(feature = "jpeg-decode")]
+            StandardFormat::Jpeg => true,
+            #[cfg(feature = "png-decode")]
+            StandardFormat::Png => true,
+            #[cfg(feature = "webp-decode")]
+            StandardFormat::WebP => true,
+            #[cfg(feature = "jxl-decode")]
+            StandardFormat::Jxl => true,
+            #[cfg(feature = "tiff-decode")]
+            StandardFormat::Tiff => true,
+            #[cfg(feature = "avif-decode")]
             StandardFormat::Avif => true,
             #[cfg(feature = "svg")]
             StandardFormat::Svg => true,
@@ -129,7 +135,7 @@ impl StandardFormat {
     pub fn supports_encode(self) -> bool {
         match self {
             StandardFormat::Png | StandardFormat::Jpeg | StandardFormat::WebP => true,
-            #[cfg(feature = "avif")]
+            #[cfg(feature = "avif-encode")]
             StandardFormat::Avif => true,
             #[cfg(feature = "jxl-encode")]
             StandardFormat::Jxl => true,
@@ -186,6 +192,7 @@ pub fn detect_standard_format(data: &[u8]) -> Option<StandardFormat> {
             Some(StandardFormat::Avif)
         }
         // HEIC/HEIF: ftyp box with heic/heis/hevc/hevx brand
+        #[cfg(feature = "heic")]
         d if d.len() >= 12
             && &d[4..8] == b"ftyp"
             && (&d[8..12] == b"heic"
@@ -227,6 +234,7 @@ fn u8_to_u16(v: u8) -> u16 {
 
 // ── GIF ──────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "gif-decode")]
 fn decode_gif(data: &[u8]) -> RawResult<RgbImage> {
     use gif::{ColorOutput, DecodeOptions};
 
@@ -305,6 +313,7 @@ fn decode_gif(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── JPEG ─────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "jpeg-decode")]
 fn decode_jpeg(data: &[u8]) -> RawResult<RgbImage> {
     let opts = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
     let cursor = ZCursor::new(data);
@@ -335,6 +344,7 @@ fn decode_jpeg(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── PNG ──────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "png-decode")]
 fn decode_png(data: &[u8]) -> RawResult<RgbImage> {
     // Decode the PNG in its native color space (RGB, RGBA, Luma, LumaA, …)
     // and then convert to packed RGB u16 manually.
@@ -409,6 +419,7 @@ fn decode_png(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── WebP ─────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "webp-decode")]
 fn decode_webp(data: &[u8]) -> RawResult<RgbImage> {
     let (w, h, rgb) = crate::codecs::webp::decode_webp_rgb(data).map_err(|e| {
         RawError::Format(FormatError::ImageDecode {
@@ -424,6 +435,7 @@ fn decode_webp(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── JXL ──────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "jxl-decode")]
 fn decode_jxl(data: &[u8]) -> RawResult<RgbImage> {
     use jxl_oxide::{JxlImage, PixelFormat};
 
@@ -496,6 +508,7 @@ fn decode_jxl(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── TIFF ─────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "tiff-decode")]
 fn decode_tiff(data: &[u8]) -> RawResult<RgbImage> {
     use tiff::ColorType;
     use tiff::decoder::{Decoder, DecodingResult};
@@ -587,7 +600,7 @@ fn decode_tiff(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── AVIF ─────────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-decode")]
 fn decode_avif(data: &[u8]) -> RawResult<RgbImage> {
     use image::DynamicImage;
     use image::codecs::avif::AvifDecoder;
@@ -612,10 +625,10 @@ fn decode_avif(data: &[u8]) -> RawResult<RgbImage> {
     Ok(RgbImage::new(w, h, rgb.into_raw()))
 }
 
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-decode"))]
 fn decode_avif(_data: &[u8]) -> RawResult<RgbImage> {
     Err(RawError::Unsupported(
-        "AVIF decoding requires the `avif` feature flag.".to_string(),
+        "AVIF decoding requires the `avif-decode` feature flag.".to_string(),
     ))
 }
 
@@ -712,16 +725,27 @@ fn decode_apv(_data: &[u8]) -> RawResult<RgbImage> {
 /// [`RawError::UnsupportedFormat`] for formats without a decoder.
 pub fn decode_standard_image(data: &[u8], format: StandardFormat) -> RawResult<RgbImage> {
     match format {
+        #[cfg(feature = "gif-decode")]
         StandardFormat::Gif => decode_gif(data),
+        #[cfg(feature = "jpeg-decode")]
         StandardFormat::Jpeg => decode_jpeg(data),
+        #[cfg(feature = "png-decode")]
         StandardFormat::Png => decode_png(data),
+        #[cfg(feature = "webp-decode")]
         StandardFormat::WebP => decode_webp(data),
+        #[cfg(feature = "jxl-decode")]
         StandardFormat::Jxl => decode_jxl(data),
+        #[cfg(feature = "tiff-decode")]
         StandardFormat::Tiff => decode_tiff(data),
         StandardFormat::Avif => decode_avif(data),
         StandardFormat::Heic => decode_heic(data),
         StandardFormat::Svg => decode_svg(data),
         StandardFormat::Apv => decode_apv(data),
+        #[allow(unreachable_patterns)]
+        _ => Err(RawError::Unsupported(format!(
+            "Decoding {:?} requires a feature flag that is not enabled.",
+            format.name()
+        ))),
     }
 }
 
@@ -1207,7 +1231,7 @@ mod tests {
         assert_eq!(img.data[2], 0); // B of red pixel
     }
 
-    #[cfg(not(feature = "avif"))]
+    #[cfg(not(feature = "avif-decode"))]
     #[test]
     fn avif_returns_unsupported_without_feature() {
         let mut magic = [0u8; 12];
@@ -1350,10 +1374,10 @@ mod tests {
         assert!(StandardFormat::WebP.supports_decode());
         assert!(StandardFormat::Jxl.supports_decode());
         assert!(StandardFormat::Tiff.supports_decode());
-        // AVIF decode requires the `avif` feature
-        #[cfg(feature = "avif")]
+        // AVIF decode requires the `avif-decode` feature
+        #[cfg(feature = "avif-decode")]
         assert!(StandardFormat::Avif.supports_decode());
-        #[cfg(not(feature = "avif"))]
+        #[cfg(not(feature = "avif-decode"))]
         assert!(!StandardFormat::Avif.supports_decode());
         // Stubbed formats
         assert!(!StandardFormat::Heic.supports_decode());
@@ -1374,6 +1398,7 @@ mod tests {
 
     // ── HEIC detection and decode ─────────────────────────────────────────
 
+    #[cfg(feature = "heic")]
     #[test]
     fn detect_heic_heic_brand() {
         let mut magic = [0u8; 12];
@@ -1382,6 +1407,7 @@ mod tests {
         assert_eq!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
+    #[cfg(feature = "heic")]
     #[test]
     fn detect_heic_heis_brand() {
         let mut magic = [0u8; 12];
@@ -1390,6 +1416,7 @@ mod tests {
         assert_eq!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
+    #[cfg(feature = "heic")]
     #[test]
     fn detect_heic_hevc_brand() {
         let mut magic = [0u8; 12];
@@ -1398,6 +1425,7 @@ mod tests {
         assert_eq!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
+    #[cfg(feature = "heic")]
     #[test]
     fn detect_heic_hevx_brand() {
         let mut magic = [0u8; 12];
@@ -1415,6 +1443,7 @@ mod tests {
         assert_ne!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
+    #[cfg(feature = "heic")]
     #[test]
     fn heic_decode_returns_error() {
         let mut magic = [0u8; 12];
@@ -1606,13 +1635,13 @@ mod tests {
         let _ = std::fs::remove_file(&tmp);
     }
 
-    #[cfg(feature = "avif")]
+    #[cfg(feature = "avif-decode")]
     #[test]
     fn avif_supports_decode_with_feature() {
         assert!(StandardFormat::Avif.supports_decode());
     }
 
-    #[cfg(feature = "avif")]
+    #[cfg(feature = "avif-encode")]
     #[test]
     fn avif_supports_encode_with_feature() {
         assert!(StandardFormat::Avif.supports_encode());

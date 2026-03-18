@@ -42,7 +42,7 @@ pub use crate::error::{
 };
 
 // formats
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 pub use crate::formats::export::AvifOptions;
 #[cfg(feature = "jxl-encode")]
 pub use crate::formats::export::JxlOptions;
@@ -50,10 +50,23 @@ pub use crate::formats::export::{
     EncodeOptions, JpegOptions, MetadataEmbedOptions, PngOptions, WebPOptions,
 };
 pub use crate::formats::{
-    DngExportConfig, RawFile, RawFormat, StandardFormat, decode_standard_image,
-    detect_standard_format, encode_rgb_image, encode_rgb_image_to_writer, export_dng,
-    read_standard_image_metadata,
+    StandardFormat, decode_standard_image, detect_standard_format, encode_rgb_image,
+    encode_rgb_image_to_writer, read_standard_image_metadata,
 };
+
+#[cfg(any(
+    feature = "arw",
+    feature = "cr2",
+    feature = "cr3",
+    feature = "crw",
+    feature = "dng",
+    feature = "nef",
+    feature = "raf"
+))]
+pub use crate::formats::{RawFile, RawFormat};
+
+#[cfg(feature = "dng")]
+pub use crate::formats::{DngExportConfig, export_dng};
 
 // processing
 pub use crate::processing::{
@@ -61,6 +74,7 @@ pub use crate::processing::{
 };
 
 // tiff
+#[cfg(feature = "tiff-parser")]
 pub use crate::tiff::{
     ByteOrder, Ifd, IfdEntry, Rational, SRational, TiffParser, TiffTag, TiffValue, TiffWriter,
 };

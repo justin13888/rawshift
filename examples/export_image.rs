@@ -114,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("png") => EncodeOptions::png(),
         Some("jpg") | Some("jpeg") => EncodeOptions::jpeg(),
         Some("webp") => EncodeOptions::webp_lossy(),
-        #[cfg(feature = "avif")]
+        #[cfg(feature = "avif-encode")]
         Some("avif") => EncodeOptions::avif(),
         #[cfg(feature = "jxl-encode")]
         Some("jxl") => EncodeOptions::jxl(),

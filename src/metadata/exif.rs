@@ -294,7 +294,6 @@ impl ExifParser {
     /// Convert an already-parsed `little_exif::Metadata` into [`ImageMetadata`].
     pub fn parse_metadata(exif: &Metadata) -> ImageMetadata {
         use crate::core::metadata::*;
-        use crate::tiff::{Rational as URational, SRational};
 
         let mut md = ImageMetadata::default();
 

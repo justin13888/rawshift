@@ -1,3 +1,4 @@
+#[cfg(feature = "dng")]
 use crate::formats::dng_export::DngExportConfig;
 
 /// Controls which metadata blocks are embedded in the exported image.
@@ -32,13 +33,14 @@ pub enum EncodeOptions {
     Jpeg(JpegOptions),
     /// WebP format options
     WebP(WebPOptions),
-    /// AVIF format options (requires `avif` feature)
-    #[cfg(feature = "avif")]
+    /// AVIF format options (requires `avif-encode` feature)
+    #[cfg(feature = "avif-encode")]
     Avif(AvifOptions),
     /// JPEG XL format options (requires `jxl-encode` feature)
     #[cfg(feature = "jxl-encode")]
     Jxl(JxlOptions),
-    /// DNG format options
+    /// DNG format options (requires `dng` feature)
+    #[cfg(feature = "dng")]
     Dng(DngExportConfig),
 }
 
@@ -65,7 +67,7 @@ impl EncodeOptions {
         Self::WebP(WebPOptions::lossless())
     }
 
-    #[cfg(feature = "avif")]
+    #[cfg(feature = "avif-encode")]
     pub fn avif() -> Self {
         Self::Avif(AvifOptions::default())
     }
@@ -75,6 +77,7 @@ impl EncodeOptions {
         Self::Jxl(JxlOptions::default())
     }
 
+    #[cfg(feature = "dng")]
     pub fn dng() -> Self {
         Self::Dng(DngExportConfig::default())
     }
@@ -176,8 +179,8 @@ impl WebPOptions {
     }
 }
 
-/// Options for AVIF encoding (requires `avif` feature).
-#[cfg(feature = "avif")]
+/// Options for AVIF encoding (requires `avif-encode` feature).
+#[cfg(feature = "avif-encode")]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AvifOptions {
@@ -189,7 +192,7 @@ pub struct AvifOptions {
     pub metadata: MetadataEmbedOptions,
 }
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 impl Default for AvifOptions {
     fn default() -> Self {
         Self {

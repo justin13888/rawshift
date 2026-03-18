@@ -22,7 +22,8 @@
 //!
 //! ## Quick Start
 //!
-//! ```no_run
+//! ```no_run,ignore
+//! // Requires features = ["experimental"]
 //! use rawshift::formats::RawFile;
 //! use std::fs::File;
 //!
@@ -48,9 +49,14 @@
 //!
 //! ## Feature Flags
 //! - `serde`: Enable serialization for metadata types
-//! - `avif`: Enable AVIF encode (via `ravif`) and decode (via `dav1d`)
-//! - `jxl-encode`: Enable JXL encoding
-//! - `svg`: Enable SVG decoding (requires `resvg`)
+//! - `jpeg`, `png`, `webp`: Standard format codec pairs (decode + encode)
+//! - `jxl-decode`: JXL decoding; `jxl-encode`: JXL encoding (requires `jxl-decode`)
+//! - `gif-decode`, `tiff-decode`: GIF/TIFF decoding (no encode support)
+//! - `avif-decode`, `avif-encode`: AVIF decode/encode; `avif` enables both
+//! - `svg`: SVG decoding (requires `resvg`)
+//! - `tiff-parser`: Internal TIFF structure parser + public `TiffParser` API
+//! - `experimental`: Enables all RAW formats (ARW, DNG, CR2, CR3, CRW, NEF, RAF)
+//! - `full`: All features enabled
 
 pub(crate) mod codecs;
 pub mod core;
@@ -59,6 +65,7 @@ pub mod error;
 pub mod formats;
 pub(crate) mod metadata;
 pub mod processing;
+#[cfg(feature = "tiff-parser")]
 pub mod tiff;
 pub mod transforms;
 

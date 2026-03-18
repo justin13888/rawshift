@@ -13,6 +13,7 @@
 use std::io;
 use thiserror::Error;
 
+#[cfg(feature = "tiff-parser")]
 use crate::tiff::TiffTag;
 
 /// Main error type for the rawshift library.
@@ -69,6 +70,7 @@ pub enum ParseError {
     },
 
     /// Required tag not found.
+    #[cfg(feature = "tiff-parser")]
     #[error("Required tag not found: {0}")]
     TagNotFound(TiffTag),
 
@@ -109,22 +111,27 @@ pub enum ParseError {
 #[derive(Debug, Error)]
 pub enum FormatError {
     /// Canon CR2 format error.
+    #[cfg(feature = "cr2")]
     #[error("CR2 error: {0}")]
     Cr2(String),
 
     /// Nikon NEF format error.
+    #[cfg(feature = "nef")]
     #[error("NEF error: {0}")]
     Nef(String),
 
     /// Canon CR3/ISOBMFF format error.
+    #[cfg(feature = "cr3")]
     #[error("CR3 error: {0}")]
     Cr3(String),
 
     /// Fujifilm RAF format error.
+    #[cfg(feature = "raf")]
     #[error("RAF error: {0}")]
     Raf(String),
 
     /// Canon CRW/CIFF format error.
+    #[cfg(feature = "crw")]
     #[error("CRW error: {0}")]
     Crw(String),
 
@@ -167,6 +174,7 @@ pub enum EncodeError {
     },
 
     /// JPEG encoding error.
+    #[cfg(feature = "jpeg-encode")]
     #[error("JPEG encoding error: {0}")]
     Jpeg(#[from] jpeg_encoder::EncodingError),
 
@@ -175,12 +183,14 @@ pub enum EncodeError {
     WebP(String),
 }
 
+#[cfg(feature = "tiff-parser")]
 impl From<binrw::Error> for RawError {
     fn from(err: binrw::Error) -> Self {
         RawError::Parse(ParseError::BinaryParse(err.to_string()))
     }
 }
 
+#[cfg(feature = "jpeg-encode")]
 impl From<jpeg_encoder::EncodingError> for RawError {
     fn from(err: jpeg_encoder::EncodingError) -> Self {
         RawError::Encode(EncodeError::Jpeg(err))
@@ -273,9 +283,12 @@ mod tests {
         let s = format!("{}", err);
         assert!(s.contains("Invalid TIFF magic"));
 
-        let err = RawError::Parse(ParseError::TagNotFound(TiffTag::ImageWidth));
-        let s = format!("{}", err);
-        assert!(s.contains("ImageWidth"));
+        #[cfg(feature = "tiff-parser")]
+        {
+            let err = RawError::Parse(ParseError::TagNotFound(crate::tiff::TiffTag::ImageWidth));
+            let s = format!("{}", err);
+            assert!(s.contains("ImageWidth"));
+        }
     }
 
     #[test]
@@ -295,6 +308,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "cr2")]
     #[test]
     fn test_format_error_conversion() {
         let fmt_err = FormatError::Cr2("test error".to_string());

@@ -3,95 +3,171 @@
 //! This module provides format-specific decoders for various RAW image formats.
 //! Use `RawFile::open()` as the common entry point for automatic format detection.
 
+#[cfg(feature = "arw")]
 pub(crate) mod arw;
+#[cfg(feature = "cr2")]
 pub(crate) mod cr2;
+#[cfg(feature = "cr3")]
 pub(crate) mod cr3;
+#[cfg(feature = "crw")]
 pub(crate) mod crw;
+#[cfg(feature = "dng")]
 pub(crate) mod dng;
+#[cfg(feature = "dng")]
 pub(crate) mod dng_export;
 pub mod export;
+#[cfg(feature = "nef")]
 pub(crate) mod nef;
+#[cfg(feature = "raf")]
 pub(crate) mod raf;
 pub(crate) mod standard;
 
+#[cfg(feature = "dng")]
 pub use dng_export::{DngExportConfig, export_dng};
 pub use standard::{
     StandardFormat, decode_standard_image, detect_standard_format, read_standard_image_metadata,
 };
 
-use std::io::{Read, Seek, SeekFrom};
-
-use crate::core::image::{RawImage, RgbImage};
+use crate::core::image::RgbImage;
 use crate::core::metadata::ImageMetadata;
 use crate::error::{EncodeError, RawError, RawResult};
-use crate::processing::ProcessingOptions;
+#[cfg(feature = "tiff-parser")]
 use crate::tiff::{TiffParser, TiffTag};
-use crate::transforms::bad_pixel::apply_bad_pixel_correction;
-use crate::transforms::black_level::apply_black_level;
-use crate::transforms::ca_correction::apply_ca_correction;
-use crate::transforms::color::{
-    apply_color_matrix, apply_white_balance, apply_white_balance_raw, compute_camera_to_srgb,
-};
-use crate::transforms::denoise::apply_bilateral_filter;
-use crate::transforms::tonemap::apply_tone_reproduction;
 use export::EncodeOptions;
 use std::path::Path;
-use tracing::instrument;
 
+#[cfg(any(
+    feature = "arw",
+    feature = "cr2",
+    feature = "cr3",
+    feature = "crw",
+    feature = "dng",
+    feature = "nef",
+    feature = "raf"
+))]
+use {
+    crate::core::image::RawImage,
+    crate::processing::ProcessingOptions,
+    crate::transforms::{
+        apply_bad_pixel_correction, apply_bilateral_filter, apply_black_level, apply_ca_correction,
+        apply_color_matrix, apply_tone_reproduction, apply_white_balance, apply_white_balance_raw,
+        compute_camera_to_srgb,
+    },
+    std::io::{Read, Seek, SeekFrom},
+    tracing::instrument,
+};
+
+#[cfg(any(
+    feature = "arw",
+    feature = "cr2",
+    feature = "cr3",
+    feature = "crw",
+    feature = "dng",
+    feature = "nef",
+    feature = "raf"
+))]
 /// Supported RAW file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RawFormat {
     /// Sony ARW format
+    #[cfg(feature = "arw")]
     Arw,
     /// Canon CR2 format
+    #[cfg(feature = "cr2")]
     Cr2,
     /// Canon CR3 format
+    #[cfg(feature = "cr3")]
     Cr3,
     /// Canon CRW (CIFF) format
+    #[cfg(feature = "crw")]
     Crw,
-    /// Adobe DNG format (planned)
+    /// Adobe DNG format
+    #[cfg(feature = "dng")]
     Dng,
     /// Nikon NEF format
+    #[cfg(feature = "nef")]
     Nef,
     /// Fujifilm RAF format
+    #[cfg(feature = "raf")]
     Raf,
 }
 
+#[cfg(any(
+    feature = "arw",
+    feature = "cr2",
+    feature = "cr3",
+    feature = "crw",
+    feature = "dng",
+    feature = "nef",
+    feature = "raf"
+))]
 impl std::fmt::Display for RawFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "arw")]
             RawFormat::Arw => write!(f, "ARW"),
+            #[cfg(feature = "cr2")]
             RawFormat::Cr2 => write!(f, "CR2"),
+            #[cfg(feature = "cr3")]
             RawFormat::Cr3 => write!(f, "CR3"),
+            #[cfg(feature = "crw")]
             RawFormat::Crw => write!(f, "CRW"),
+            #[cfg(feature = "dng")]
             RawFormat::Dng => write!(f, "DNG"),
+            #[cfg(feature = "nef")]
             RawFormat::Nef => write!(f, "NEF"),
+            #[cfg(feature = "raf")]
             RawFormat::Raf => write!(f, "RAF"),
         }
     }
 }
 
+#[cfg(any(
+    feature = "arw",
+    feature = "cr2",
+    feature = "cr3",
+    feature = "crw",
+    feature = "dng",
+    feature = "nef",
+    feature = "raf"
+))]
 /// Common entry point for parsing RAW files.
 ///
 /// Wraps the specific format implementation for the detected file type.
 pub enum RawFile<R> {
     /// Sony ARW format
+    #[cfg(feature = "arw")]
     Arw(Box<arw::ArwFile<R>>),
     /// Canon CR2 format
+    #[cfg(feature = "cr2")]
     Cr2(Box<cr2::Cr2File<R>>),
     /// Canon CR3 format
+    #[cfg(feature = "cr3")]
     Cr3(Box<cr3::Cr3File<R>>),
     /// Canon CRW (CIFF) format
+    #[cfg(feature = "crw")]
     Crw(Box<crw::CrwFile<R>>),
     /// Adobe DNG format
+    #[cfg(feature = "dng")]
     Dng(Box<dng::DngFile<R>>),
     /// Nikon NEF format
+    #[cfg(feature = "nef")]
     Nef(Box<nef::NefFile<R>>),
     /// Fujifilm RAF format
+    #[cfg(feature = "raf")]
     Raf(Box<raf::RafFile<R>>),
 }
 
+#[cfg(any(
+    feature = "arw",
+    feature = "cr2",
+    feature = "cr3",
+    feature = "crw",
+    feature = "dng",
+    feature = "nef",
+    feature = "raf"
+))]
 impl<R: Read + Seek> RawFile<R> {
     /// Open and parse a RAW file, automatically detecting the format.
     ///
@@ -100,30 +176,37 @@ impl<R: Read + Seek> RawFile<R> {
         let format = Self::detect_format(&mut reader)?;
 
         match format {
+            #[cfg(feature = "arw")]
             RawFormat::Arw => {
                 let file = arw::ArwFile::parse(reader)?;
                 Ok(RawFile::Arw(Box::new(file)))
             }
+            #[cfg(feature = "cr2")]
             RawFormat::Cr2 => {
                 let file = cr2::Cr2File::parse(reader)?;
                 Ok(RawFile::Cr2(Box::new(file)))
             }
+            #[cfg(feature = "cr3")]
             RawFormat::Cr3 => {
                 let file = cr3::Cr3File::parse(reader)?;
                 Ok(RawFile::Cr3(Box::new(file)))
             }
+            #[cfg(feature = "crw")]
             RawFormat::Crw => {
                 let file = crw::CrwFile::parse(reader)?;
                 Ok(RawFile::Crw(Box::new(file)))
             }
+            #[cfg(feature = "dng")]
             RawFormat::Dng => {
                 let file = dng::DngFile::parse(reader)?;
                 Ok(RawFile::Dng(Box::new(file)))
             }
+            #[cfg(feature = "nef")]
             RawFormat::Nef => {
                 let file = nef::NefFile::parse(reader)?;
                 Ok(RawFile::Nef(Box::new(file)))
             }
+            #[cfg(feature = "raf")]
             RawFormat::Raf => {
                 let file = raf::RafFile::parse(reader)?;
                 Ok(RawFile::Raf(Box::new(file)))
@@ -137,12 +220,19 @@ impl<R: Read + Seek> RawFile<R> {
     pub fn metadata(&self) -> crate::core::ImageMetadata {
         use crate::core::MetadataExtractor;
         match self {
+            #[cfg(feature = "arw")]
             RawFile::Arw(arw) => arw.extract_metadata(),
+            #[cfg(feature = "cr2")]
             RawFile::Cr2(cr2) => cr2.extract_metadata(),
+            #[cfg(feature = "cr3")]
             RawFile::Cr3(cr3) => cr3.extract_metadata(),
+            #[cfg(feature = "crw")]
             RawFile::Crw(crw) => crw.extract_metadata(),
+            #[cfg(feature = "dng")]
             RawFile::Dng(dng) => dng.extract_metadata(),
+            #[cfg(feature = "nef")]
             RawFile::Nef(nef) => nef.extract_metadata(),
+            #[cfg(feature = "raf")]
             RawFile::Raf(raf) => raf.extract_metadata(),
         }
     }
@@ -153,12 +243,19 @@ impl<R: Read + Seek> RawFile<R> {
     /// the format does not contain one (or extraction is not yet implemented).
     pub fn thumbnail(&mut self) -> RawResult<Option<Vec<u8>>> {
         match self {
+            #[cfg(feature = "arw")]
             RawFile::Arw(arw) => arw.thumbnail(),
+            #[cfg(feature = "cr2")]
             RawFile::Cr2(cr2) => cr2.thumbnail(),
+            #[cfg(feature = "cr3")]
             RawFile::Cr3(cr3) => cr3.thumbnail(),
+            #[cfg(feature = "crw")]
             RawFile::Crw(crw) => crw.thumbnail(),
+            #[cfg(feature = "dng")]
             RawFile::Dng(dng) => dng.thumbnail(),
+            #[cfg(feature = "nef")]
             RawFile::Nef(nef) => nef.thumbnail(),
+            #[cfg(feature = "raf")]
             RawFile::Raf(raf) => raf.thumbnail(),
         }
     }
@@ -169,12 +266,19 @@ impl<R: Read + Seek> RawFile<R> {
     /// For LinearRaw DNG files, returns the already-demosaiced data as a RawImage.
     pub fn decode_raw(&mut self) -> RawResult<RawImage> {
         match self {
+            #[cfg(feature = "arw")]
             RawFile::Arw(arw) => arw.decode_raw(),
+            #[cfg(feature = "cr2")]
             RawFile::Cr2(cr2) => cr2.decode_raw(),
+            #[cfg(feature = "cr3")]
             RawFile::Cr3(cr3) => cr3.decode_raw(),
+            #[cfg(feature = "crw")]
             RawFile::Crw(crw) => crw.decode_raw(),
+            #[cfg(feature = "dng")]
             RawFile::Dng(dng) => dng.decode_raw(),
+            #[cfg(feature = "nef")]
             RawFile::Nef(nef) => nef.decode_raw(),
+            #[cfg(feature = "raf")]
             RawFile::Raf(raf) => raf.decode_raw(),
         }
     }
@@ -192,47 +296,52 @@ impl<R: Read + Seek> RawFile<R> {
 
         // 1. Obtain the initial RGB image
         let mut rgb_image = if self.is_linear_raw_dng() {
-            tracing::trace!("Using LinearRaw path (already demosaiced)");
-            let RawFile::Dng(dng) = self else {
-                unreachable!()
-            };
+            #[cfg(feature = "dng")]
+            {
+                tracing::trace!("Using LinearRaw path (already demosaiced)");
+                let RawFile::Dng(dng) = self else {
+                    unreachable!()
+                };
 
-            let metadata = dng.metadata();
-            let bit_depth = metadata.map(|m| m.bit_depth).unwrap_or(16);
-            let linearization_table = metadata.and_then(|m| m.linearization_table.as_ref());
+                let metadata = dng.metadata();
+                let bit_depth = metadata.map(|m| m.bit_depth).unwrap_or(16);
+                let linearization_table = metadata.and_then(|m| m.linearization_table.as_ref());
 
-            let is_scaled_by_table = if let Some(table) = linearization_table {
-                if !table.is_empty() {
-                    let max_val = table.iter().max().copied().unwrap_or(0);
-                    tracing::trace!("LinearizationTable present. Max value: {}", max_val);
-                    max_val > 4095
+                let is_scaled_by_table = if let Some(table) = linearization_table {
+                    if !table.is_empty() {
+                        let max_val = table.iter().max().copied().unwrap_or(0);
+                        tracing::trace!("LinearizationTable present. Max value: {}", max_val);
+                        max_val > 4095
+                    } else {
+                        false
+                    }
                 } else {
                     false
+                };
+
+                let mut image = dng.decode_linear_raw()?;
+
+                let shift = if is_scaled_by_table {
+                    0
+                } else {
+                    16u8.saturating_sub(bit_depth)
+                };
+
+                if shift > 0 {
+                    tracing::debug!(
+                        "Scaling {}-bit linear data to 16-bit (shift: {})",
+                        bit_depth,
+                        shift
+                    );
+                    for pixel in &mut image.data {
+                        let val = (*pixel as u32) << shift;
+                        *pixel = val.min(65535) as u16;
+                    }
                 }
-            } else {
-                false
-            };
-
-            let mut image = dng.decode_linear_raw()?;
-
-            let shift = if is_scaled_by_table {
-                0
-            } else {
-                16u8.saturating_sub(bit_depth)
-            };
-
-            if shift > 0 {
-                tracing::debug!(
-                    "Scaling {}-bit linear data to 16-bit (shift: {})",
-                    bit_depth,
-                    shift
-                );
-                for pixel in &mut image.data {
-                    let val = (*pixel as u32) << shift;
-                    *pixel = val.min(65535) as u16;
-                }
+                image
             }
-            image
+            #[cfg(not(feature = "dng"))]
+            unreachable!()
         } else {
             tracing::trace!("Using standard CFA path (demosaicing needed)");
 
@@ -454,13 +563,20 @@ impl<R: Read + Seek> RawFile<R> {
     /// Helper to check if the current file is a LinearRaw DNG
     pub fn is_linear_raw_dng(&self) -> bool {
         match self {
+            #[cfg(feature = "dng")]
             RawFile::Dng(dng) => dng.metadata().map(|m| m.is_linear_raw).unwrap_or(false),
-            RawFile::Arw(_)
-            | RawFile::Cr2(_)
-            | RawFile::Cr3(_)
-            | RawFile::Crw(_)
-            | RawFile::Nef(_)
-            | RawFile::Raf(_) => false,
+            #[cfg(feature = "arw")]
+            RawFile::Arw(_) => false,
+            #[cfg(feature = "cr2")]
+            RawFile::Cr2(_) => false,
+            #[cfg(feature = "cr3")]
+            RawFile::Cr3(_) => false,
+            #[cfg(feature = "crw")]
+            RawFile::Crw(_) => false,
+            #[cfg(feature = "nef")]
+            RawFile::Nef(_) => false,
+            #[cfg(feature = "raf")]
+            RawFile::Raf(_) => false,
         }
     }
 
@@ -474,12 +590,14 @@ impl<R: Read + Seek> RawFile<R> {
         reader.seek(SeekFrom::Start(start))?;
 
         // Check for Fujifilm RAF magic first (not TIFF-based)
+        #[cfg(feature = "raf")]
         if raf::is_raf(&header) {
             return Ok(RawFormat::Raf);
         }
 
         // CR3 detection must come BEFORE the TIFF check because CR3 uses ISOBMFF
         // (not TIFF) and would otherwise be rejected as an unsupported format.
+        #[cfg(feature = "cr3")]
         if cr3::is_cr3(&header) {
             return Ok(RawFormat::Cr3);
         }
@@ -487,6 +605,7 @@ impl<R: Read + Seek> RawFile<R> {
         // CRW detection must come BEFORE the TIFF check. CRW uses II/MM + 0x0001
         // (not 0x002A) and has "HEAPCCDR" at bytes 6..14. A standard TIFF parser
         // would reject it because the magic number is wrong.
+        #[cfg(feature = "crw")]
         if crw::is_crw(&header) {
             return Ok(RawFormat::Crw);
         }
@@ -503,30 +622,37 @@ impl<R: Read + Seek> RawFile<R> {
 
         // CR2 detection via magic bytes at offset 8: "CR" + 0x02
         // This is faster than parsing IFDs and more reliable.
+        #[cfg(feature = "cr2")]
         if cr2::is_cr2(&header) {
             return Ok(RawFormat::Cr2);
         }
 
         // Parse as TIFF to inspect Make tag for format detection
-        let mut parser = TiffParser::new(reader)?;
-        let ifd0 = parser.parse_ifd0()?;
+        #[cfg(feature = "tiff-parser")]
+        {
+            let mut parser = TiffParser::new(reader)?;
+            let ifd0 = parser.parse_ifd0()?;
 
-        // Check for DNG version first - if present, it's a DNG regardless of Make
-        if ifd0.get(TiffTag::DNGVersion).is_some() {
-            return Ok(RawFormat::Dng);
-        }
+            // Check for DNG version first - if present, it's a DNG regardless of Make
+            #[cfg(feature = "dng")]
+            if ifd0.get(TiffTag::DNGVersion).is_some() {
+                return Ok(RawFormat::Dng);
+            }
 
-        // Check Make tag to determine specific format
-        if let Some(make_entry) = ifd0.get(TiffTag::Make) {
-            if let Ok(value) = parser.read_value(make_entry) {
-                if let Some(make) = value.as_str() {
-                    let make_lower = make.to_lowercase();
-                    if make_lower.contains("sony") {
-                        return Ok(RawFormat::Arw);
-                    }
-                    // Add more manufacturers here as we add support
-                    if make_lower.contains("nikon") {
-                        return Ok(RawFormat::Nef);
+            // Check Make tag to determine specific format
+            if let Some(make_entry) = ifd0.get(TiffTag::Make) {
+                if let Ok(value) = parser.read_value(make_entry) {
+                    if let Some(make) = value.as_str() {
+                        let make_lower = make.to_lowercase();
+                        #[cfg(feature = "arw")]
+                        if make_lower.contains("sony") {
+                            return Ok(RawFormat::Arw);
+                        }
+                        // Add more manufacturers here as we add support
+                        #[cfg(feature = "nef")]
+                        if make_lower.contains("nikon") {
+                            return Ok(RawFormat::Nef);
+                        }
                     }
                 }
             }
@@ -554,6 +680,7 @@ pub fn encode_rgb_image(
     encode_options: &EncodeOptions,
 ) -> RawResult<()> {
     match encode_options {
+        #[cfg(feature = "png-encode")]
         EncodeOptions::Png(opts) => {
             use zune_core::colorspace::ColorSpace;
             use zune_core::options::EncoderOptions;
@@ -638,6 +765,7 @@ pub fn encode_rgb_image(
             use std::io::Write;
             file.write_all(&output)?;
         }
+        #[cfg(feature = "jpeg-encode")]
         EncodeOptions::Jpeg(opts) => {
             use crate::metadata::exif::ExifBuilder;
             use crate::metadata::icc::IccProfile;
@@ -689,6 +817,7 @@ pub fn encode_rgb_image(
                 std::fs::write(path, jpeg_data)?;
             }
         }
+        #[cfg(feature = "webp-encode")]
         EncodeOptions::WebP(opts) => {
             use crate::codecs::webp::{build_webp_config, encode_webp_rgb, mux_webp};
             use crate::formats::export::WebPMode;
@@ -742,7 +871,7 @@ pub fn encode_rgb_image(
 
             std::fs::write(path, output)?;
         }
-        #[cfg(feature = "avif")]
+        #[cfg(feature = "avif-encode")]
         EncodeOptions::Avif(opts) => {
             use crate::metadata::exif::ExifBuilder;
             use ravif::{Encoder, Img, RGBA8};
@@ -863,8 +992,15 @@ pub fn encode_rgb_image(
                 }
             }
         }
+        #[cfg(feature = "dng")]
         EncodeOptions::Dng(config) => {
             export_dng(path, image, metadata, config)?;
+        }
+        #[allow(unreachable_patterns)]
+        _ => {
+            return Err(RawError::Unsupported(
+                "This encode format is not available with the current feature flags.".to_string(),
+            ));
         }
     }
 
@@ -883,6 +1019,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
     encode_options: &EncodeOptions,
 ) -> RawResult<()> {
     match encode_options {
+        #[cfg(feature = "png-encode")]
         EncodeOptions::Png(opts) => {
             use zune_core::colorspace::ColorSpace;
             use zune_core::options::EncoderOptions;
@@ -963,6 +1100,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
 
             writer.write_all(&output)?;
         }
+        #[cfg(feature = "jpeg-encode")]
         EncodeOptions::Jpeg(opts) => {
             use crate::metadata::exif::ExifBuilder;
             use crate::metadata::icc::IccProfile;
@@ -1011,6 +1149,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
 
             writer.write_all(&jpeg_buf)?;
         }
+        #[cfg(feature = "webp-encode")]
         EncodeOptions::WebP(opts) => {
             use crate::codecs::webp::{build_webp_config, encode_webp_rgb, mux_webp};
             use crate::formats::export::WebPMode;
@@ -1064,6 +1203,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
 
             writer.write_all(&output)?;
         }
+        #[allow(unreachable_patterns)]
         _ => {
             return Err(RawError::Unsupported(
                 "This format does not support writing to a generic writer. Use encode_rgb_image() with a file path.".to_string(),
@@ -1076,8 +1216,6 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::io::Cursor;
 
     /// Verify that applying WB before normalization prevents highlight clipping
     /// for neutral-gray pixels that would otherwise be pushed above 65535.
@@ -1195,6 +1333,15 @@ mod tests {
         let _ = r_new;
     }
 
+    #[cfg(any(
+        feature = "arw",
+        feature = "cr2",
+        feature = "cr3",
+        feature = "crw",
+        feature = "dng",
+        feature = "nef",
+        feature = "raf"
+    ))]
     #[test]
     fn test_detect_format_invalid_magic() {
         // This data is valid length but has wrong magic bytes
@@ -1210,6 +1357,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tiff-parser")]
     #[test]
     fn test_detect_format_tiff_no_make() {
         // Valid TIFF header but no Make tag - should return UnsupportedFormat
@@ -1230,6 +1378,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "dng")]
     #[test]
     fn test_detect_format_dng() {
         // Mock TIFF with DNGVersion tag
@@ -1258,6 +1407,7 @@ mod tests {
         assert!(matches!(result, Ok(RawFormat::Dng)));
     }
 
+    #[cfg(feature = "dng")]
     #[test]
     fn test_detect_format_sony_dng() {
         // Mock TIFF with BOTH DNGVersion and Make="Sony"
@@ -1370,6 +1520,15 @@ mod tests {
         assert_eq!(img.data, original_data);
     }
 
+    #[cfg(any(
+        feature = "arw",
+        feature = "cr2",
+        feature = "cr3",
+        feature = "crw",
+        feature = "dng",
+        feature = "nef",
+        feature = "raf"
+    ))]
     #[test]
     fn test_open_empty_reader_returns_error() {
         // An empty reader cannot be a valid RAW file
@@ -1381,6 +1540,15 @@ mod tests {
         );
     }
 
+    #[cfg(any(
+        feature = "arw",
+        feature = "cr2",
+        feature = "cr3",
+        feature = "crw",
+        feature = "dng",
+        feature = "nef",
+        feature = "raf"
+    ))]
     #[test]
     fn test_detect_format_empty_returns_error() {
         // detect_format on an empty buffer should return an Io error (UnexpectedEof)

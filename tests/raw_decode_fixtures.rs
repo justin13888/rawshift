@@ -1,3 +1,4 @@
+#![cfg(feature = "experimental")]
 //! Integration tests for RAW format decoding from on-disk fixture files.
 //!
 //! These tests load real RAW image files from `test_data/<Make>/<Model>/` and verify
