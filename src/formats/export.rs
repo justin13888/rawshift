@@ -1,5 +1,27 @@
 use crate::formats::dng_export::DngExportConfig;
 
+/// Controls which metadata blocks are embedded in the exported image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MetadataEmbedOptions {
+    /// Embed EXIF metadata. Default: `true`
+    pub embed_exif: bool,
+    /// Embed ICC colour profile. Default: `true`
+    pub embed_icc: bool,
+    /// Embed XMP metadata (WebP only for now). Default: `true`
+    pub embed_xmp: bool,
+}
+
+impl Default for MetadataEmbedOptions {
+    fn default() -> Self {
+        Self {
+            embed_exif: true,
+            embed_icc: true,
+            embed_xmp: true,
+        }
+    }
+}
+
 /// Options for encoding the output image.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -65,12 +87,15 @@ pub struct PngOptions {
     /// Bit depth (8 or 16). Default: 16
     #[cfg_attr(feature = "serde", serde(skip))]
     pub bit_depth: zune_core::bit_depth::BitDepth,
+    /// Metadata embedding options (embedding is currently a NOP for PNG).
+    pub metadata: MetadataEmbedOptions,
 }
 
 impl Default for PngOptions {
     fn default() -> Self {
         Self {
             bit_depth: zune_core::bit_depth::BitDepth::Sixteen,
+            metadata: MetadataEmbedOptions::default(),
         }
     }
 }
@@ -81,18 +106,15 @@ impl Default for PngOptions {
 pub struct JpegOptions {
     /// Quality (1-100). Default: 90
     pub quality: u8,
-    /// Whether to embed EXIF metadata. Default: true
-    pub embed_exif: bool,
-    /// Whether to embed ICC profile. Default: true
-    pub embed_icc: bool,
+    /// Metadata embedding options.
+    pub metadata: MetadataEmbedOptions,
 }
 
 impl Default for JpegOptions {
     fn default() -> Self {
         Self {
             quality: 90,
-            embed_exif: true,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions::default(),
         }
     }
 }
@@ -120,12 +142,8 @@ pub struct WebPOptions {
     pub method: u32,
     /// Near-lossless preprocessing (0-100, 100=off). Only used in Lossless mode. Default: 100
     pub near_lossless: u32,
-    /// Whether to embed EXIF metadata. Default: true
-    pub embed_exif: bool,
-    /// Whether to embed ICC profile. Default: true
-    pub embed_icc: bool,
-    /// Whether to embed XMP metadata. Default: true
-    pub embed_xmp: bool,
+    /// Metadata embedding options.
+    pub metadata: MetadataEmbedOptions,
 }
 
 impl Default for WebPOptions {
@@ -142,9 +160,7 @@ impl WebPOptions {
             quality: 75.0,
             method: 4,
             near_lossless: 100,
-            embed_exif: true,
-            embed_icc: true,
-            embed_xmp: true,
+            metadata: MetadataEmbedOptions::default(),
         }
     }
 
@@ -155,9 +171,7 @@ impl WebPOptions {
             quality: 75.0,
             method: 4,
             near_lossless: 100,
-            embed_exif: true,
-            embed_icc: true,
-            embed_xmp: true,
+            metadata: MetadataEmbedOptions::default(),
         }
     }
 }
@@ -171,10 +185,8 @@ pub struct AvifOptions {
     pub quality: u8,
     /// Speed (1-10, higher is faster). Default: 6
     pub speed: u8,
-    /// Whether to embed EXIF metadata. Default: true
-    pub embed_exif: bool,
-    /// Whether to embed sRGB ICC profile. Default: true
-    pub embed_icc: bool,
+    /// Metadata embedding options.
+    pub metadata: MetadataEmbedOptions,
 }
 
 #[cfg(feature = "avif")]
@@ -183,8 +195,7 @@ impl Default for AvifOptions {
         Self {
             quality: 80,
             speed: 6,
-            embed_exif: true,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions::default(),
         }
     }
 }
@@ -198,10 +209,8 @@ pub struct JxlOptions {
     pub quality: f32,
     /// Effort (1-9, higher is slower). Default: 7
     pub effort: u8,
-    /// Whether to embed EXIF metadata. Default: true
-    pub embed_exif: bool,
-    /// Whether to embed sRGB ICC profile. Default: true
-    pub embed_icc: bool,
+    /// Metadata embedding options.
+    pub metadata: MetadataEmbedOptions,
 }
 
 #[cfg(feature = "jxl-encode")]
@@ -210,8 +219,7 @@ impl Default for JxlOptions {
         Self {
             quality: 0.0,
             effort: 7,
-            embed_exif: true,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions::default(),
         }
     }
 }

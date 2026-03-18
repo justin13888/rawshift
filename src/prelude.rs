@@ -46,7 +46,9 @@ pub use crate::error::{
 pub use crate::formats::export::AvifOptions;
 #[cfg(feature = "jxl-encode")]
 pub use crate::formats::export::JxlOptions;
-pub use crate::formats::export::{EncodeOptions, JpegOptions, PngOptions, WebPOptions};
+pub use crate::formats::export::{
+    EncodeOptions, JpegOptions, MetadataEmbedOptions, PngOptions, WebPOptions,
+};
 pub use crate::formats::{
     DngExportConfig, RawFile, RawFormat, StandardFormat, decode_standard_image,
     detect_standard_format, encode_rgb_image, encode_rgb_image_to_writer, export_dng,

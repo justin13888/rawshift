@@ -1548,7 +1548,7 @@ mod tests {
     fn avif_exif_round_trip() {
         use crate::core::metadata::*;
         use crate::formats::encode_rgb_image;
-        use crate::formats::export::{AvifOptions, EncodeOptions};
+        use crate::formats::export::{AvifOptions, EncodeOptions, MetadataEmbedOptions};
 
         // Build a 2×2 synthetic image (solid red).
         let data: Vec<u16> = vec![65535, 0, 0, 65535, 0, 0, 65535, 0, 0, 65535, 0, 0];
@@ -1577,8 +1577,10 @@ mod tests {
         let opts = EncodeOptions::Avif(AvifOptions {
             quality: 60,
             speed: 10,
-            embed_exif: true,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
         });
         encode_rgb_image(&rgb, &md, &tmp, &opts).expect("encode AVIF");
 

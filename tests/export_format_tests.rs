@@ -12,7 +12,9 @@ use rawshift::formats::encode_rgb_image;
 use rawshift::formats::export::AvifOptions;
 #[cfg(feature = "jxl-encode")]
 use rawshift::formats::export::JxlOptions;
-use rawshift::formats::export::{EncodeOptions, JpegOptions, PngOptions, WebPMode, WebPOptions};
+use rawshift::formats::export::{
+    EncodeOptions, JpegOptions, MetadataEmbedOptions, PngOptions, WebPMode, WebPOptions,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -86,8 +88,10 @@ mod jpeg_tests {
 
         let opts = JpegOptions {
             quality: 85,
-            embed_exif: true,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
         };
         encode_rgb_image(
             &img,
@@ -111,8 +115,10 @@ mod jpeg_tests {
 
         let opts = JpegOptions {
             quality: 85,
-            embed_exif: false,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                ..MetadataEmbedOptions::default()
+            },
         };
         encode_rgb_image(
             &img,
@@ -135,8 +141,7 @@ mod jpeg_tests {
 
         let opts = JpegOptions {
             quality: 90,
-            embed_exif: true,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions::default(),
         };
         encode_rgb_image(
             &img,
@@ -160,8 +165,11 @@ mod jpeg_tests {
 
         let opts = JpegOptions {
             quality: 85,
-            embed_exif: false,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
         };
         encode_rgb_image(
             &img,
@@ -211,8 +219,11 @@ mod jpeg_tests {
 
         let opts_low = JpegOptions {
             quality: 30,
-            embed_exif: false,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
         };
         encode_rgb_image(
             &img,
@@ -224,8 +235,11 @@ mod jpeg_tests {
 
         let opts_high = JpegOptions {
             quality: 95,
-            embed_exif: false,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
         };
         encode_rgb_image(
             &img,
@@ -263,8 +277,8 @@ mod webp_tests {
         let path = temp_path("export_lossy_exif.webp");
 
         let mut opts = WebPOptions::lossy();
-        opts.embed_icc = false;
-        opts.embed_xmp = false;
+        opts.metadata.embed_icc = false;
+        opts.metadata.embed_xmp = false;
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
@@ -307,9 +321,9 @@ mod webp_tests {
         let path = temp_path("export_no_meta.webp");
 
         let mut opts = WebPOptions::lossy();
-        opts.embed_exif = false;
-        opts.embed_icc = false;
-        opts.embed_xmp = false;
+        opts.metadata.embed_exif = false;
+        opts.metadata.embed_icc = false;
+        opts.metadata.embed_xmp = false;
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
@@ -332,8 +346,8 @@ mod webp_tests {
         let path = temp_path("export_icc.webp");
 
         let mut opts = WebPOptions::lossy();
-        opts.embed_exif = false;
-        opts.embed_xmp = false;
+        opts.metadata.embed_exif = false;
+        opts.metadata.embed_xmp = false;
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
@@ -359,8 +373,8 @@ mod webp_tests {
         };
 
         let mut opts = WebPOptions::lossy();
-        opts.embed_exif = false;
-        opts.embed_icc = false;
+        opts.metadata.embed_exif = false;
+        opts.metadata.embed_icc = false;
         encode_rgb_image(&img, &meta, &path, &EncodeOptions::WebP(opts)).expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
@@ -401,9 +415,9 @@ mod webp_tests {
 
         let mut opts_low = WebPOptions::lossy();
         opts_low.quality = 10.0;
-        opts_low.embed_exif = false;
-        opts_low.embed_icc = false;
-        opts_low.embed_xmp = false;
+        opts_low.metadata.embed_exif = false;
+        opts_low.metadata.embed_icc = false;
+        opts_low.metadata.embed_xmp = false;
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
@@ -414,9 +428,9 @@ mod webp_tests {
 
         let mut opts_high = WebPOptions::lossy();
         opts_high.quality = 95.0;
-        opts_high.embed_exif = false;
-        opts_high.embed_icc = false;
-        opts_high.embed_xmp = false;
+        opts_high.metadata.embed_exif = false;
+        opts_high.metadata.embed_icc = false;
+        opts_high.metadata.embed_xmp = false;
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
@@ -477,6 +491,7 @@ mod png_tests {
 
         let opts = PngOptions {
             bit_depth: zune_core::bit_depth::BitDepth::Eight,
+            metadata: MetadataEmbedOptions::default(),
         };
         encode_rgb_image(
             &img,
@@ -534,8 +549,10 @@ mod avif_tests {
         let img = synthetic_image();
         let path = temp_path("avif_icc_on.avif");
         let opts = AvifOptions {
-            embed_exif: false,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                ..MetadataEmbedOptions::default()
+            },
             ..AvifOptions::default()
         };
         encode_rgb_image(
@@ -555,8 +572,11 @@ mod avif_tests {
         let img = synthetic_image();
         let path = temp_path("avif_icc_off.avif");
         let opts = AvifOptions {
-            embed_exif: false,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
             ..AvifOptions::default()
         };
         encode_rgb_image(
@@ -576,8 +596,7 @@ mod avif_tests {
         let img = synthetic_image();
         let path = temp_path("avif_icc_exif.avif");
         let opts = AvifOptions {
-            embed_exif: true,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions::default(),
             ..AvifOptions::default()
         };
         encode_rgb_image(
@@ -623,7 +642,7 @@ mod jxl_tests {
     #[test]
     fn test_jxl_options_default_has_embed_icc() {
         assert!(
-            JxlOptions::default().embed_icc,
+            JxlOptions::default().metadata.embed_icc,
             "JxlOptions default should have embed_icc=true"
         );
     }
@@ -633,8 +652,10 @@ mod jxl_tests {
         let img = synthetic_image();
         let path = temp_path("jxl_icc_on.jxl");
         let opts = JxlOptions {
-            embed_exif: false,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                ..MetadataEmbedOptions::default()
+            },
             ..JxlOptions::default()
         };
         encode_rgb_image(
@@ -655,8 +676,11 @@ mod jxl_tests {
         let img = synthetic_image();
         let path = temp_path("jxl_icc_off.jxl");
         let opts = JxlOptions {
-            embed_exif: false,
-            embed_icc: false,
+            metadata: MetadataEmbedOptions {
+                embed_exif: false,
+                embed_icc: false,
+                ..MetadataEmbedOptions::default()
+            },
             ..JxlOptions::default()
         };
         encode_rgb_image(
@@ -676,8 +700,7 @@ mod jxl_tests {
         let img = synthetic_image();
         let path = temp_path("jxl_icc_exif.jxl");
         let opts = JxlOptions {
-            embed_exif: true,
-            embed_icc: true,
+            metadata: MetadataEmbedOptions::default(),
             ..JxlOptions::default()
         };
         encode_rgb_image(
@@ -737,8 +760,11 @@ mod encode_options_tests {
     fn test_jpeg_options_defaults() {
         let opts = JpegOptions::default();
         assert_eq!(opts.quality, 90, "JPEG default quality should be 90");
-        assert!(opts.embed_exif, "JPEG should embed EXIF by default");
-        assert!(opts.embed_icc, "JPEG should embed ICC by default");
+        assert!(
+            opts.metadata.embed_exif,
+            "JPEG should embed EXIF by default"
+        );
+        assert!(opts.metadata.embed_icc, "JPEG should embed ICC by default");
     }
 
     #[test]
@@ -758,9 +784,12 @@ mod encode_options_tests {
             opts.near_lossless, 100,
             "WebP default near_lossless should be 100"
         );
-        assert!(opts.embed_exif, "WebP should embed EXIF by default");
-        assert!(opts.embed_icc, "WebP should embed ICC by default");
-        assert!(opts.embed_xmp, "WebP should embed XMP by default");
+        assert!(
+            opts.metadata.embed_exif,
+            "WebP should embed EXIF by default"
+        );
+        assert!(opts.metadata.embed_icc, "WebP should embed ICC by default");
+        assert!(opts.metadata.embed_xmp, "WebP should embed XMP by default");
     }
 
     #[test]

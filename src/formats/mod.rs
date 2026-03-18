@@ -610,10 +610,10 @@ pub fn encode_rgb_image(
                 ColorType::Rgb,
             )?;
 
-            if opts.embed_exif || opts.embed_icc {
+            if opts.metadata.embed_exif || opts.metadata.embed_icc {
                 let mut jpeg_data = std::fs::read(path)?;
 
-                if opts.embed_exif {
+                if opts.metadata.embed_exif {
                     let exif_builder = ExifBuilder::new(metadata);
                     match exif_builder.append_to_jpeg(jpeg_data.clone()) {
                         Ok(data) => jpeg_data = data,
@@ -621,7 +621,7 @@ pub fn encode_rgb_image(
                     }
                 }
 
-                if opts.embed_icc {
+                if opts.metadata.embed_icc {
                     let icc = IccProfile::srgb();
                     match icc.append_to_jpeg(jpeg_data.clone()) {
                         Ok(data) => jpeg_data = data,
@@ -650,7 +650,7 @@ pub fn encode_rgb_image(
             let encoded = encode_webp_rgb(&data_8bit, image.width(), image.height(), &config)
                 .map_err(|e| RawError::Encode(EncodeError::WebP(e)))?;
 
-            let exif_bytes = if opts.embed_exif {
+            let exif_bytes = if opts.metadata.embed_exif {
                 let exif_builder = ExifBuilder::new(metadata);
                 match exif_builder.build_bytes() {
                     Ok(bytes) => Some(bytes),
@@ -663,13 +663,13 @@ pub fn encode_rgb_image(
                 None
             };
 
-            let icc_bytes = if opts.embed_icc {
+            let icc_bytes = if opts.metadata.embed_icc {
                 Some(IccProfile::srgb().as_bytes().to_vec())
             } else {
                 None
             };
 
-            let xmp_bytes = if opts.embed_xmp {
+            let xmp_bytes = if opts.metadata.embed_xmp {
                 metadata.xmp.as_deref()
             } else {
                 None
@@ -716,7 +716,7 @@ pub fn encode_rgb_image(
             let result = encoder.encode_rgba(img).expect("Encode AVIF");
             let mut avif_bytes = result.avif_file;
 
-            if opts.embed_icc {
+            if opts.metadata.embed_icc {
                 use crate::metadata::icc::IccProfile;
                 match IccProfile::srgb().append_to_avif(avif_bytes.clone()) {
                     Ok(data) => avif_bytes = data,
@@ -726,7 +726,7 @@ pub fn encode_rgb_image(
 
             std::fs::write(path, avif_bytes)?;
 
-            if opts.embed_exif {
+            if opts.metadata.embed_exif {
                 let exif_builder = ExifBuilder::new(metadata);
                 if let Err(e) = exif_builder.append_to_avif_file(path) {
                     tracing::warn!("Failed to embed EXIF in AVIF: {}", e);
@@ -757,7 +757,7 @@ pub fn encode_rgb_image(
             encoder.encode(&mut encoded).expect("Encode JXL");
             std::fs::write(path, &encoded)?;
 
-            if opts.embed_exif {
+            if opts.metadata.embed_exif {
                 use crate::metadata::exif::ExifBuilder;
                 let exif_builder = ExifBuilder::new(metadata);
                 if let Err(e) = exif_builder.append_to_jxl_file(path) {
@@ -765,7 +765,7 @@ pub fn encode_rgb_image(
                 }
             }
 
-            if opts.embed_icc {
+            if opts.metadata.embed_icc {
                 use crate::metadata::icc::IccProfile;
                 match std::fs::read(path) {
                     Ok(jxl_bytes) => match IccProfile::srgb().append_to_jxl(jxl_bytes) {
@@ -855,7 +855,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
                 ColorType::Rgb,
             )?;
 
-            if opts.embed_exif {
+            if opts.metadata.embed_exif {
                 let exif_builder = ExifBuilder::new(metadata);
                 match exif_builder.append_to_jpeg(jpeg_buf.clone()) {
                     Ok(data) => jpeg_buf = data,
@@ -863,7 +863,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
                 }
             }
 
-            if opts.embed_icc {
+            if opts.metadata.embed_icc {
                 let icc = IccProfile::srgb();
                 match icc.append_to_jpeg(jpeg_buf.clone()) {
                     Ok(data) => jpeg_buf = data,
@@ -891,7 +891,7 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
             let encoded = encode_webp_rgb(&data_8bit, image.width(), image.height(), &config)
                 .map_err(|e| RawError::Encode(EncodeError::WebP(e)))?;
 
-            let exif_bytes = if opts.embed_exif {
+            let exif_bytes = if opts.metadata.embed_exif {
                 let exif_builder = ExifBuilder::new(metadata);
                 match exif_builder.build_bytes() {
                     Ok(bytes) => Some(bytes),
@@ -904,13 +904,13 @@ pub fn encode_rgb_image_to_writer<W: std::io::Write>(
                 None
             };
 
-            let icc_bytes = if opts.embed_icc {
+            let icc_bytes = if opts.metadata.embed_icc {
                 Some(IccProfile::srgb().as_bytes().to_vec())
             } else {
                 None
             };
 
-            let xmp_bytes = if opts.embed_xmp {
+            let xmp_bytes = if opts.metadata.embed_xmp {
                 metadata.xmp.as_deref()
             } else {
                 None
