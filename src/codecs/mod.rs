@@ -1,8 +1,8 @@
-#[cfg(feature = "arw")]
+#[cfg(feature = "arw-decode")]
 pub(crate) mod arw;
 #[cfg(feature = "tiff-parser")]
 pub(crate) mod bit_pump;
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-decode")]
 pub(crate) mod jxl;
 #[cfg(feature = "tiff-parser")]
 pub(crate) mod ljpeg;

@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("png") => EncodeOptions::png(),
         Some("jpg") | Some("jpeg") => EncodeOptions::jpeg(),
         Some("webp") => EncodeOptions::webp_lossy(),
-        #[cfg(feature = "dng")]
+        #[cfg(feature = "dng-encode")]
         Some("dng") => EncodeOptions::dng(),
         _ => {
             eprintln!("Unsupported output format. Defaulting to JPEG.");

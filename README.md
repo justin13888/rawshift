@@ -31,24 +31,24 @@ Here is the list of formats that are being worked on in order of priority:
 
 > We aim to be liberal in what we accept (decode) and strict in what we give (encode).
 
-| Format       | Decoding    | Encoding    | Notes                                                                                                                                                     |
-| ------------ | ----------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sony ARW     | Stabilizing | N/A         |                                                                                                                                                           |
-| Canon CR2    | WIP         | N/A         |                                                                                                                                                           |
-| Canon CR3    | WIP         | N/A         |                                                                                                                                                           |
-| Canon CRW    | WIP         | N/A         |                                                                                                                                                           |
-| Adobe DNG    | Stabilizing | Stabilizing | We aim to support all standards-compliant DNG for decoding (includes Apple ProRAW) but don't plan to support encoding (as linear DNGs are not so common). |
-| Nikon NEF    | WIP         | N/A         |                                                                                                                                                           |
-| Fujifilm RAF | WIP         | N/A         |                                                                                                                                                           |
-| TIFF         | WIP         | WIP         |                                                                                                                                                           |
-| AVIF         | WIP         | WIP         |                                                                                                                                                           |
-| HEIC         | TBD         | Not planned | HEIC uses patented H.265 encoding. We may support decoding eventually but not encoding.                                                                   |
-| JPEG         | WIP         | WIP         |                                                                                                                                                           |
-| JXL          | WIP         | WIP         |                                                                                                                                                           |
-| PNG          | WIP         | WIP         |                                                                                                                                                           |
-| SVG          | WIP         | Not planned |                                                                                                                                                           |
-| WEBP         | WIP         | WIP         |                                                                                                                                                           |
-| GIF          | WIP         | Not planned |                                                                                                                                                           |
+| Format       | Decoding    | Encoding    | Notes                                                                    |
+| ------------ | ----------- | ----------- | ------------------------------------------------------------------------ |
+| Sony ARW     | Stabilizing | N/A         |                                                                          |
+| Canon CR2    | Incomplete  | N/A         | No test fixtures.                                                        |
+| Canon CR3    | Incomplete  | N/A         | Metadata only. CRX codec not implemented.                                |
+| Canon CRW    | Incomplete  | N/A         | Detection only. No pixel decode.                                         |
+| Adobe DNG    | Stabilizing | Stabilizing | Includes Apple ProRAW (DNG 1.7 + JXL).                                  |
+| Nikon NEF    | Incomplete  | N/A         | No test fixtures.                                                        |
+| Fujifilm RAF | Incomplete  | N/A         | No test fixtures.                                                        |
+| JPEG         | Stable      | Stable      |                                                                          |
+| PNG          | Stable      | Stable      |                                                                          |
+| WebP         | Stable      | Stable      |                                                                          |
+| GIF          | Stable      | Not planned |                                                                          |
+| TIFF         | Stable      | Not planned |                                                                          |
+| JXL          | Stable      | Functional  |                                                                          |
+| AVIF         | Functional  | Functional  |                                                                          |
+| HEIC         | Detection   | Not planned | H.265 patents.                                                           |
+| SVG          | Functional  | Not planned |                                                                          |
 
 Note on encoding support: For formats that we do not support encoding, you may still take the decoded pixel data and metadata, and encode it with your own encoding logic.
 

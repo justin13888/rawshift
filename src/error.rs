@@ -111,27 +111,27 @@ pub enum ParseError {
 #[derive(Debug, Error)]
 pub enum FormatError {
     /// Canon CR2 format error.
-    #[cfg(feature = "cr2")]
+    #[cfg(feature = "cr2-decode")]
     #[error("CR2 error: {0}")]
     Cr2(String),
 
     /// Nikon NEF format error.
-    #[cfg(feature = "nef")]
+    #[cfg(feature = "nef-decode")]
     #[error("NEF error: {0}")]
     Nef(String),
 
     /// Canon CR3/ISOBMFF format error.
-    #[cfg(feature = "cr3")]
+    #[cfg(feature = "cr3-decode")]
     #[error("CR3 error: {0}")]
     Cr3(String),
 
     /// Fujifilm RAF format error.
-    #[cfg(feature = "raf")]
+    #[cfg(feature = "raf-decode")]
     #[error("RAF error: {0}")]
     Raf(String),
 
     /// Canon CRW/CIFF format error.
-    #[cfg(feature = "crw")]
+    #[cfg(feature = "crw-decode")]
     #[error("CRW error: {0}")]
     Crw(String),
 
@@ -308,7 +308,7 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "cr2")]
+    #[cfg(feature = "cr2-decode")]
     #[test]
     fn test_format_error_conversion() {
         let fmt_err = FormatError::Cr2("test error".to_string());

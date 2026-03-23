@@ -83,17 +83,33 @@ serde        = ["dep:serde"]
 # Internal TIFF structure parser (used by TIFF-based RAW formats)
 tiff-parser  = ["dep:binrw"]
 
-# RAW format flags (decode/pipeline only, no encode)
-arw          = ["tiff-parser"]
-cr2          = ["tiff-parser"]
-cr3          = ["tiff-parser"]
-crw          = []
-dng          = ["tiff-parser", "jxl-decode"]
-nef          = ["tiff-parser"]
-raf          = []
+# RAW format decode flags
+arw-decode   = ["tiff-parser"]
+cr2-decode   = ["tiff-parser"]
+cr3-decode   = ["tiff-parser"]
+crw-decode   = []
+dng-decode   = ["tiff-parser", "jxl-decode"]
+dng-encode   = ["tiff-parser"]
+nef-decode   = ["tiff-parser"]
+raf-decode   = []
 
-# Meta-feature: enables all RAW formats
-experimental = ["arw", "dng", "cr2", "cr3", "crw", "nef", "raf"]
+# RAW format aliases (consistent with standard format naming: jpeg = jpeg-decode + jpeg-encode)
+arw          = ["arw-decode"]
+cr2          = ["cr2-decode"]
+cr3          = ["cr3-decode"]
+crw          = ["crw-decode"]
+dng          = ["dng-decode", "dng-encode"]
+nef          = ["nef-decode"]
+raf          = ["raf-decode"]
+
+# RAW formats with real test fixtures and working full-pipeline decode
+raw-stabilizing = ["arw", "dng"]
+
+# RAW formats missing test fixtures or pixel decode
+raw-incomplete  = ["cr2", "cr3", "crw", "nef", "raf"]
+
+# All RAW formats (backward-compatible alias)
+experimental = ["raw-stabilizing", "raw-incomplete"]
 
 # Everything
 full = ["jpeg", "png", "webp", "jxl", "gif-decode", "tiff-decode",

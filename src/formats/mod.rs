@@ -3,27 +3,27 @@
 //! This module provides format-specific decoders for various RAW image formats.
 //! Use `RawFile::open()` as the common entry point for automatic format detection.
 
-#[cfg(feature = "arw")]
+#[cfg(feature = "arw-decode")]
 pub(crate) mod arw;
-#[cfg(feature = "cr2")]
+#[cfg(feature = "cr2-decode")]
 pub(crate) mod cr2;
-#[cfg(feature = "cr3")]
+#[cfg(feature = "cr3-decode")]
 pub(crate) mod cr3;
-#[cfg(feature = "crw")]
+#[cfg(feature = "crw-decode")]
 pub(crate) mod crw;
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-decode")]
 pub(crate) mod dng;
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-encode")]
 pub(crate) mod dng_export;
 mod encode;
 pub mod export;
-#[cfg(feature = "nef")]
+#[cfg(feature = "nef-decode")]
 pub(crate) mod nef;
-#[cfg(feature = "raf")]
+#[cfg(feature = "raf-decode")]
 pub(crate) mod raf;
 pub(crate) mod standard;
 
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-encode")]
 pub use dng_export::{DngExportConfig, export_dng};
 pub use encode::{encode_rgb_image, encode_rgb_image_to_writer};
 pub use standard::{
@@ -55,25 +55,25 @@ use {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RawFormat {
     /// Sony ARW format
-    #[cfg(feature = "arw")]
+    #[cfg(feature = "arw-decode")]
     Arw,
     /// Canon CR2 format
-    #[cfg(feature = "cr2")]
+    #[cfg(feature = "cr2-decode")]
     Cr2,
     /// Canon CR3 format
-    #[cfg(feature = "cr3")]
+    #[cfg(feature = "cr3-decode")]
     Cr3,
     /// Canon CRW (CIFF) format
-    #[cfg(feature = "crw")]
+    #[cfg(feature = "crw-decode")]
     Crw,
     /// Adobe DNG format
-    #[cfg(feature = "dng")]
+    #[cfg(feature = "dng-decode")]
     Dng,
     /// Nikon NEF format
-    #[cfg(feature = "nef")]
+    #[cfg(feature = "nef-decode")]
     Nef,
     /// Fujifilm RAF format
-    #[cfg(feature = "raf")]
+    #[cfg(feature = "raf-decode")]
     Raf,
 }
 
@@ -81,19 +81,19 @@ pub enum RawFormat {
 impl std::fmt::Display for RawFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            #[cfg(feature = "arw")]
+            #[cfg(feature = "arw-decode")]
             RawFormat::Arw => write!(f, "ARW"),
-            #[cfg(feature = "cr2")]
+            #[cfg(feature = "cr2-decode")]
             RawFormat::Cr2 => write!(f, "CR2"),
-            #[cfg(feature = "cr3")]
+            #[cfg(feature = "cr3-decode")]
             RawFormat::Cr3 => write!(f, "CR3"),
-            #[cfg(feature = "crw")]
+            #[cfg(feature = "crw-decode")]
             RawFormat::Crw => write!(f, "CRW"),
-            #[cfg(feature = "dng")]
+            #[cfg(feature = "dng-decode")]
             RawFormat::Dng => write!(f, "DNG"),
-            #[cfg(feature = "nef")]
+            #[cfg(feature = "nef-decode")]
             RawFormat::Nef => write!(f, "NEF"),
-            #[cfg(feature = "raf")]
+            #[cfg(feature = "raf-decode")]
             RawFormat::Raf => write!(f, "RAF"),
         }
     }
@@ -105,25 +105,25 @@ impl std::fmt::Display for RawFormat {
 /// Wraps the specific format implementation for the detected file type.
 pub enum RawFile<R> {
     /// Sony ARW format
-    #[cfg(feature = "arw")]
+    #[cfg(feature = "arw-decode")]
     Arw(Box<arw::ArwFile<R>>),
     /// Canon CR2 format
-    #[cfg(feature = "cr2")]
+    #[cfg(feature = "cr2-decode")]
     Cr2(Box<cr2::Cr2File<R>>),
     /// Canon CR3 format
-    #[cfg(feature = "cr3")]
+    #[cfg(feature = "cr3-decode")]
     Cr3(Box<cr3::Cr3File<R>>),
     /// Canon CRW (CIFF) format
-    #[cfg(feature = "crw")]
+    #[cfg(feature = "crw-decode")]
     Crw(Box<crw::CrwFile<R>>),
     /// Adobe DNG format
-    #[cfg(feature = "dng")]
+    #[cfg(feature = "dng-decode")]
     Dng(Box<dng::DngFile<R>>),
     /// Nikon NEF format
-    #[cfg(feature = "nef")]
+    #[cfg(feature = "nef-decode")]
     Nef(Box<nef::NefFile<R>>),
     /// Fujifilm RAF format
-    #[cfg(feature = "raf")]
+    #[cfg(feature = "raf-decode")]
     Raf(Box<raf::RafFile<R>>),
 }
 
@@ -137,19 +137,19 @@ pub enum RawFile<R> {
 macro_rules! raw_format_dispatch {
     ($self:expr, $inner:ident => $body:expr) => {
         match $self {
-            #[cfg(feature = "arw")]
+            #[cfg(feature = "arw-decode")]
             Self::Arw($inner) => $body,
-            #[cfg(feature = "cr2")]
+            #[cfg(feature = "cr2-decode")]
             Self::Cr2($inner) => $body,
-            #[cfg(feature = "cr3")]
+            #[cfg(feature = "cr3-decode")]
             Self::Cr3($inner) => $body,
-            #[cfg(feature = "crw")]
+            #[cfg(feature = "crw-decode")]
             Self::Crw($inner) => $body,
-            #[cfg(feature = "dng")]
+            #[cfg(feature = "dng-decode")]
             Self::Dng($inner) => $body,
-            #[cfg(feature = "nef")]
+            #[cfg(feature = "nef-decode")]
             Self::Nef($inner) => $body,
-            #[cfg(feature = "raf")]
+            #[cfg(feature = "raf-decode")]
             Self::Raf($inner) => $body,
         }
     };
@@ -164,37 +164,37 @@ impl<R: Read + Seek> RawFile<R> {
         let format = Self::detect_format(&mut reader)?;
 
         match format {
-            #[cfg(feature = "arw")]
+            #[cfg(feature = "arw-decode")]
             RawFormat::Arw => {
                 let file = arw::ArwFile::parse(reader)?;
                 Ok(RawFile::Arw(Box::new(file)))
             }
-            #[cfg(feature = "cr2")]
+            #[cfg(feature = "cr2-decode")]
             RawFormat::Cr2 => {
                 let file = cr2::Cr2File::parse(reader)?;
                 Ok(RawFile::Cr2(Box::new(file)))
             }
-            #[cfg(feature = "cr3")]
+            #[cfg(feature = "cr3-decode")]
             RawFormat::Cr3 => {
                 let file = cr3::Cr3File::parse(reader)?;
                 Ok(RawFile::Cr3(Box::new(file)))
             }
-            #[cfg(feature = "crw")]
+            #[cfg(feature = "crw-decode")]
             RawFormat::Crw => {
                 let file = crw::CrwFile::parse(reader)?;
                 Ok(RawFile::Crw(Box::new(file)))
             }
-            #[cfg(feature = "dng")]
+            #[cfg(feature = "dng-decode")]
             RawFormat::Dng => {
                 let file = dng::DngFile::parse(reader)?;
                 Ok(RawFile::Dng(Box::new(file)))
             }
-            #[cfg(feature = "nef")]
+            #[cfg(feature = "nef-decode")]
             RawFormat::Nef => {
                 let file = nef::NefFile::parse(reader)?;
                 Ok(RawFile::Nef(Box::new(file)))
             }
-            #[cfg(feature = "raf")]
+            #[cfg(feature = "raf-decode")]
             RawFormat::Raf => {
                 let file = raf::RafFile::parse(reader)?;
                 Ok(RawFile::Raf(Box::new(file)))
@@ -239,7 +239,7 @@ impl<R: Read + Seek> RawFile<R> {
 
         // 1. Obtain the initial RGB image
         let mut rgb_image = if self.is_linear_raw_dng() {
-            #[cfg(feature = "dng")]
+            #[cfg(feature = "dng-decode")]
             {
                 tracing::trace!("Using LinearRaw path (already demosaiced)");
                 let RawFile::Dng(dng) = self else {
@@ -283,7 +283,7 @@ impl<R: Read + Seek> RawFile<R> {
                 }
                 image
             }
-            #[cfg(not(feature = "dng"))]
+            #[cfg(not(feature = "dng-decode"))]
             unreachable!()
         } else {
             tracing::trace!("Using standard CFA path (demosaicing needed)");
@@ -506,19 +506,19 @@ impl<R: Read + Seek> RawFile<R> {
     /// Helper to check if the current file is a LinearRaw DNG
     pub fn is_linear_raw_dng(&self) -> bool {
         match self {
-            #[cfg(feature = "dng")]
+            #[cfg(feature = "dng-decode")]
             RawFile::Dng(dng) => dng.metadata().map(|m| m.is_linear_raw).unwrap_or(false),
-            #[cfg(feature = "arw")]
+            #[cfg(feature = "arw-decode")]
             RawFile::Arw(_) => false,
-            #[cfg(feature = "cr2")]
+            #[cfg(feature = "cr2-decode")]
             RawFile::Cr2(_) => false,
-            #[cfg(feature = "cr3")]
+            #[cfg(feature = "cr3-decode")]
             RawFile::Cr3(_) => false,
-            #[cfg(feature = "crw")]
+            #[cfg(feature = "crw-decode")]
             RawFile::Crw(_) => false,
-            #[cfg(feature = "nef")]
+            #[cfg(feature = "nef-decode")]
             RawFile::Nef(_) => false,
-            #[cfg(feature = "raf")]
+            #[cfg(feature = "raf-decode")]
             RawFile::Raf(_) => false,
         }
     }
@@ -533,14 +533,14 @@ impl<R: Read + Seek> RawFile<R> {
         reader.seek(SeekFrom::Start(start))?;
 
         // Check for Fujifilm RAF magic first (not TIFF-based)
-        #[cfg(feature = "raf")]
+        #[cfg(feature = "raf-decode")]
         if raf::is_raf(&header) {
             return Ok(RawFormat::Raf);
         }
 
         // CR3 detection must come BEFORE the TIFF check because CR3 uses ISOBMFF
         // (not TIFF) and would otherwise be rejected as an unsupported format.
-        #[cfg(feature = "cr3")]
+        #[cfg(feature = "cr3-decode")]
         if cr3::is_cr3(&header) {
             return Ok(RawFormat::Cr3);
         }
@@ -548,7 +548,7 @@ impl<R: Read + Seek> RawFile<R> {
         // CRW detection must come BEFORE the TIFF check. CRW uses II/MM + 0x0001
         // (not 0x002A) and has "HEAPCCDR" at bytes 6..14. A standard TIFF parser
         // would reject it because the magic number is wrong.
-        #[cfg(feature = "crw")]
+        #[cfg(feature = "crw-decode")]
         if crw::is_crw(&header) {
             return Ok(RawFormat::Crw);
         }
@@ -565,7 +565,7 @@ impl<R: Read + Seek> RawFile<R> {
 
         // CR2 detection via magic bytes at offset 8: "CR" + 0x02
         // This is faster than parsing IFDs and more reliable.
-        #[cfg(feature = "cr2")]
+        #[cfg(feature = "cr2-decode")]
         if cr2::is_cr2(&header) {
             return Ok(RawFormat::Cr2);
         }
@@ -577,7 +577,7 @@ impl<R: Read + Seek> RawFile<R> {
             let ifd0 = parser.parse_ifd0()?;
 
             // Check for DNG version first - if present, it's a DNG regardless of Make
-            #[cfg(feature = "dng")]
+            #[cfg(feature = "dng-decode")]
             if ifd0.get(TiffTag::DNGVersion).is_some() {
                 return Ok(RawFormat::Dng);
             }
@@ -587,12 +587,12 @@ impl<R: Read + Seek> RawFile<R> {
                 if let Ok(value) = parser.read_value(make_entry) {
                     if let Some(make) = value.as_str() {
                         let make_lower = make.to_lowercase();
-                        #[cfg(feature = "arw")]
+                        #[cfg(feature = "arw-decode")]
                         if make_lower.contains("sony") {
                             return Ok(RawFormat::Arw);
                         }
                         // Add more manufacturers here as we add support
-                        #[cfg(feature = "nef")]
+                        #[cfg(feature = "nef-decode")]
                         if make_lower.contains("nikon") {
                             return Ok(RawFormat::Nef);
                         }
@@ -769,7 +769,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "dng")]
+    #[cfg(feature = "dng-decode")]
     #[test]
     fn test_detect_format_dng() {
         // Mock TIFF with DNGVersion tag
@@ -798,7 +798,7 @@ mod tests {
         assert!(matches!(result, Ok(RawFormat::Dng)));
     }
 
-    #[cfg(feature = "dng")]
+    #[cfg(feature = "dng-decode")]
     #[test]
     fn test_detect_format_sony_dng() {
         // Mock TIFF with BOTH DNGVersion and Make="Sony"

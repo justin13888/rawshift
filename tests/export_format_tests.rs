@@ -753,7 +753,7 @@ mod encode_options_tests {
         let _ = EncodeOptions::avif();
         #[cfg(feature = "jxl-encode")]
         let _ = EncodeOptions::jxl();
-        #[cfg(feature = "dng")]
+        #[cfg(feature = "dng-encode")]
         let _ = EncodeOptions::dng();
     }
 

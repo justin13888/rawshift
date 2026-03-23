@@ -57,7 +57,7 @@ pub use crate::formats::{
 #[cfg(any_raw)]
 pub use crate::formats::{RawFile, RawFormat};
 
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-encode")]
 pub use crate::formats::{DngExportConfig, export_dng};
 
 // processing

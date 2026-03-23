@@ -11,7 +11,7 @@ use crate::core::metadata::ImageMetadata;
 use crate::error::{EncodeError, RawError, RawResult};
 
 use super::export::EncodeOptions;
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-encode")]
 use super::export_dng;
 
 /// Encode a linear RGB image to a file with optional EXIF/ICC metadata.
@@ -341,7 +341,7 @@ pub fn encode_rgb_image(
                 }
             }
         }
-        #[cfg(feature = "dng")]
+        #[cfg(feature = "dng-encode")]
         EncodeOptions::Dng(config) => {
             export_dng(path, image, metadata, config)?;
         }

@@ -1,4 +1,4 @@
-#[cfg(feature = "dng")]
+#[cfg(feature = "dng-encode")]
 use crate::formats::dng_export::DngExportConfig;
 
 /// Controls which metadata blocks are embedded in the exported image.
@@ -42,8 +42,8 @@ pub enum EncodeOptions {
     /// JPEG XL format options (requires `jxl-encode` feature)
     #[cfg(feature = "jxl-encode")]
     Jxl(JxlOptions),
-    /// DNG format options (requires `dng` feature)
-    #[cfg(feature = "dng")]
+    /// DNG format options (requires `dng-encode` feature)
+    #[cfg(feature = "dng-encode")]
     Dng(DngExportConfig),
 }
 
@@ -85,7 +85,7 @@ impl EncodeOptions {
         Self::Jxl(JxlOptions::default())
     }
 
-    #[cfg(feature = "dng")]
+    #[cfg(feature = "dng-encode")]
     pub fn dng() -> Self {
         Self::Dng(DngExportConfig::default())
     }

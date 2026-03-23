@@ -55,7 +55,11 @@
 //! - `avif-decode`, `avif-encode`: AVIF decode/encode; `avif` enables both
 //! - `svg`: SVG decoding (requires `resvg`)
 //! - `tiff-parser`: Internal TIFF structure parser + public `TiffParser` API
-//! - `experimental`: Enables all RAW formats (ARW, DNG, CR2, CR3, CRW, NEF, RAF)
+//! - `arw`, `cr2`, `cr3`, `crw`, `nef`, `raf`: RAW format decode (alias for `{format}-decode`)
+//! - `dng`: DNG decode + encode; `dng-decode`, `dng-encode` for individual control
+//! - `raw-stabilizing`: RAW formats with test fixtures (ARW, DNG)
+//! - `raw-incomplete`: RAW formats missing fixtures or pixel decode (CR2, CR3, CRW, NEF, RAF)
+//! - `experimental`: All RAW formats (raw-stabilizing + raw-incomplete)
 //! - `full`: All features enabled
 
 pub(crate) mod codecs;
