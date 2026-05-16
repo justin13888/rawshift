@@ -31,24 +31,24 @@ Here is the list of formats that are being worked on in order of priority:
 
 > We aim to be liberal in what we accept (decode) and strict in what we give (encode).
 
-| Format       | Decoding    | Encoding    | Notes                                                                    |
-| ------------ | ----------- | ----------- | ------------------------------------------------------------------------ |
-| Sony ARW     | Stabilizing | N/A         |                                                                          |
-| Canon CR2    | Incomplete  | N/A         | No test fixtures.                                                        |
-| Canon CR3    | Incomplete  | N/A         | Metadata only. CRX codec not implemented.                                |
-| Canon CRW    | Incomplete  | N/A         | Detection only. No pixel decode.                                         |
-| Adobe DNG    | Stabilizing | Stabilizing | Includes Apple ProRAW (DNG 1.7 + JXL).                                  |
-| Nikon NEF    | Incomplete  | N/A         | No test fixtures.                                                        |
-| Fujifilm RAF | Incomplete  | N/A         | No test fixtures.                                                        |
-| JPEG         | Stable      | Stable      |                                                                          |
-| PNG          | Stable      | Stable      |                                                                          |
-| WebP         | Stable      | Stable      |                                                                          |
-| GIF          | Stable      | Not planned |                                                                          |
-| TIFF         | Stable      | Not planned |                                                                          |
-| JXL          | Stable      | Functional  |                                                                          |
-| AVIF         | Functional  | Functional  |                                                                          |
-| HEIC         | Detection   | Not planned | H.265 patents.                                                           |
-| SVG          | Functional  | Not planned |                                                                          |
+| Format       | Decoding                                                                                 | Encoding                                                                                         | Notes                                     |
+| ------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| Sony ARW     | Custom LJPEG (Stabilizing)                                                               | N/A                                                                                              |                                           |
+| Canon CR2    | Custom LJPEG (Incomplete)                                                                | N/A                                                                                              | No test fixtures.                         |
+| Canon CR3    | Custom ISOBMFF parser (Incomplete)                                                       | N/A                                                                                              | Metadata only. CRX codec not implemented. |
+| Canon CRW    | Custom CIFF parser (Incomplete)                                                          | N/A                                                                                              | Detection only. No pixel decode.          |
+| Adobe DNG    | Custom TIFF + jxl-oxide (Stabilizing)                                                    | Custom TIFF writer (Stabilizing)                                                                 | Includes Apple ProRAW (DNG 1.7 + JXL).    |
+| Nikon NEF    | Custom TIFF parser (Incomplete)                                                          | N/A                                                                                              | No test fixtures.                         |
+| Fujifilm RAF | Custom RAF parser (Incomplete)                                                           | N/A                                                                                              | No test fixtures.                         |
+| JPEG         | [zune-jpeg](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg) (Stable) | [jpeg-encoder](https://github.com/vstroebel/jpeg-encoder) (Stable)                               |                                           |
+| PNG          | [zune-png](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-png) (Stable)   | [zune-png](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-png) (Stable)           |                                           |
+| WebP         | [libwebp-sys](https://github.com/noxf/libwebp-sys) (Stable)                              | [libwebp-sys](https://github.com/noxf/libwebp-sys) (Stable)                                      | C FFI bindings to libwebp.                |
+| GIF          | [gif](https://github.com/image-rs/image-gif) (Stable)                                    | Not planned                                                                                      |                                           |
+| TIFF         | [tiff](https://github.com/image-rs/image-tiff) (Stable)                                  | Not planned                                                                                      |                                           |
+| JXL          | [jxl-oxide](https://github.com/tirr-c/jxl-oxide) (Stable)                                | [zune-jpegxl](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpegxl) (Functional) |                                           |
+| AVIF         | [image/avif-native](https://github.com/image-rs/image) (Functional)                      | [ravif](https://github.com/kornelski/cavif-rs/tree/main/ravif) (Functional)                      |                                           |
+| HEIC         | Detection only                                                                           | Not planned                                                                                      | H.265 patents.                            |
+| SVG          | [resvg/tiny-skia](https://github.com/linebender/resvg) (Functional)                      | Not planned                                                                                      |                                           |
 
 Note on encoding support: For formats that we do not support encoding, you may still take the decoded pixel data and metadata, and encode it with your own encoding logic.
 
