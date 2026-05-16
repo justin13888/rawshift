@@ -2,10 +2,10 @@
 
 Clean-slate implementation for raw image decoding with full metadata support and conversion.
 
-## MANDATORY: Use td for Task Management
+## Performance
 
-You must run td usage --new-session at conversation start (or after /clear) to see current work.
-Use td usage -q for subsequent reads
+- This library is heavy on both CPU and IO. Use appropriate SIMD primitives, data structures and memory allocators.
+ 
 
 ## Testing Methodology
 
