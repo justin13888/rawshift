@@ -26,8 +26,8 @@ build:
 build-features features:
     cargo build --no-default-features --features "{{features}}"
 
-# Run tests (default features)
-test:
+# Run tests (default features) — fetches fixtures first (idempotent)
+test: setup-test-data
     cargo test
 
 # Run tests with specific features
