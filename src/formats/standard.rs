@@ -127,6 +127,8 @@ impl StandardFormat {
             StandardFormat::Avif => true,
             #[cfg(feature = "svg")]
             StandardFormat::Svg => true,
+            #[cfg(feature = "heic-decode")]
+            StandardFormat::Heic => true,
             _ => false,
         }
     }
@@ -639,14 +641,23 @@ fn decode_avif(_data: &[u8]) -> RawResult<RgbImage> {
 
 // ── HEIC ─────────────────────────────────────────────────────────────────────
 
+/// Decode a HEIC/HEIF file (ISOBMFF + HEVC) via libheif.
+#[cfg(feature = "heic-decode")]
+fn decode_heic(data: &[u8]) -> RawResult<RgbImage> {
+    let decoded = crate::codecs::heic::decode_primary(data).map_err(|message| {
+        RawError::Format(FormatError::ImageDecode {
+            format: "HEIC",
+            message,
+        })
+    })?;
+    Ok(RgbImage::new(decoded.width, decoded.height, decoded.rgb))
+}
+
+#[cfg(not(feature = "heic-decode"))]
 fn decode_heic(_data: &[u8]) -> RawResult<RgbImage> {
-    // HEIC uses the ISOBMFF container with H.265 (HEVC) compression.
-    // H.265 decoding requires a licensed library and is not implemented here.
     Err(RawError::Format(FormatError::ImageDecode {
         format: "HEIC",
-        message: "HEIC decoding requires a licensed H.265 decoder. \
-                  Set the 'heic' feature flag and provide a compatible library."
-            .to_string(),
+        message: "HEIC decoding requires the `heic` feature flag.".to_string(),
     }))
 }
 
@@ -769,13 +780,20 @@ pub fn decode_standard_image(data: &[u8], format: StandardFormat) -> RawResult<R
 /// | WebP   | EXIF chunk |
 /// | AVIF   | HEIF/ISOBMFF Exif item |
 /// | PNG    | eXIf chunk |
-/// | GIF / JXL / SVG / APV / HEIC | returns empty metadata |
+/// | HEIC   | HEIF Exif + ICC + XMP items (requires the `heic` feature) |
+/// | GIF / JXL / SVG / APV | returns empty metadata |
 pub fn read_standard_image_metadata(
     data: &[u8],
     format: StandardFormat,
 ) -> crate::core::metadata::ImageMetadata {
     use crate::metadata::exif::ExifParser;
     use little_exif::filetype::FileExtension;
+
+    // HEIC goes through libheif so that ICC and XMP are extracted alongside EXIF.
+    #[cfg(feature = "heic-decode")]
+    if format == StandardFormat::Heic {
+        return crate::formats::heic::read_heic_metadata(data);
+    }
 
     let file_type = match format {
         StandardFormat::Jpeg => FileExtension::JPEG,
@@ -1384,8 +1402,12 @@ mod tests {
         assert!(StandardFormat::Avif.supports_decode());
         #[cfg(not(feature = "avif-decode"))]
         assert!(!StandardFormat::Avif.supports_decode());
-        // Stubbed formats
+        // HEIC decode requires the `heic` feature
+        #[cfg(feature = "heic-decode")]
+        assert!(StandardFormat::Heic.supports_decode());
+        #[cfg(not(feature = "heic-decode"))]
         assert!(!StandardFormat::Heic.supports_decode());
+        // Stubbed formats
         assert!(!StandardFormat::Apv.supports_decode());
     }
 

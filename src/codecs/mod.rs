@@ -2,6 +2,8 @@
 pub(crate) mod arw;
 #[cfg(feature = "tiff-parser")]
 pub(crate) mod bit_pump;
+#[cfg(feature = "heic-decode")]
+pub(crate) mod heic;
 #[cfg(feature = "dng-decode")]
 pub(crate) mod jxl;
 #[cfg(feature = "tiff-parser")]

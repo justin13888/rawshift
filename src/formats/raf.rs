@@ -300,6 +300,11 @@ impl<R: Read + Seek> crate::core::MetadataExtractor for RafFile<R> {
                 default_crop_size: None,
             },
             xmp: None,
+            icc_profile: None,
+            exif_raw: None,
+            makernote_raw: None,
+            iptc_raw: None,
+            extra: Vec::new(),
         }
     }
 }

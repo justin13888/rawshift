@@ -228,10 +228,91 @@ pub struct ImageInfo {
     pub default_crop_size: Option<(u32, u32)>,
 }
 
+/// A typed, format-agnostic metadata value.
+///
+/// Used by [`ImageMetadata::extra`] to represent any metadata tag that does not
+/// have a dedicated typed field. Every EXIF/TIFF/XMP/IPTC value type maps onto
+/// one of these variants, so the generic table can hold *anything* the library
+/// does not (yet) model without requiring a schema change.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum MetadataValue {
+    /// Unsigned integer (EXIF BYTE / SHORT / LONG widen losslessly into `u64`).
+    U64(u64),
+    /// Signed integer (EXIF SBYTE / SSHORT / SLONG).
+    I64(i64),
+    /// Floating point (EXIF FLOAT / DOUBLE).
+    F64(f64),
+    /// Unsigned rational (EXIF RATIONAL).
+    URational(URational),
+    /// Signed rational (EXIF SRATIONAL).
+    SRational(SRational),
+    /// Text (EXIF ASCII, XMP/IPTC strings).
+    Text(String),
+    /// Opaque/undefined byte payload (EXIF UNDEFINED, MakerNote fragments).
+    Bytes(Vec<u8>),
+    /// Homogeneous or heterogeneous array of values (EXIF count > 1).
+    Array(Vec<MetadataValue>),
+}
+
+/// Namespace identifying the origin of a generic metadata tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum MetadataNamespace {
+    /// Standard TIFF/EXIF IFD tags.
+    Exif,
+    /// EXIF GPS IFD tags.
+    Gps,
+    /// Manufacturer MakerNote (uninterpreted sub-tags).
+    MakerNote,
+    /// XMP (RDF/XML) properties.
+    Xmp,
+    /// IPTC IIM datasets.
+    Iptc,
+    /// HEIC/HEIF container-level facts.
+    Heic,
+    /// Vendor/format-specific, identified by the accompanying tag string.
+    Other,
+}
+
+/// Fully-qualified key into [`ImageMetadata::extra`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MetadataKey {
+    /// Origin namespace.
+    pub namespace: MetadataNamespace,
+    /// Tag identifier — a string for serde stability and human-readable dumps
+    /// (e.g. `"0x9209"` for an EXIF tag, or an XMP property path).
+    pub tag: String,
+}
+
+impl MetadataKey {
+    /// Create a new metadata key.
+    pub fn new(namespace: MetadataNamespace, tag: impl Into<String>) -> Self {
+        Self {
+            namespace,
+            tag: tag.into(),
+        }
+    }
+}
+
+/// One entry in the generic metadata table ([`ImageMetadata::extra`]).
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MetadataEntry {
+    /// Namespaced tag identifier.
+    pub key: MetadataKey,
+    /// Typed value.
+    pub value: MetadataValue,
+}
+
 /// Complete image metadata — unified superset of all supported formats.
 ///
-/// This struct is designed for extension. When adding support for new RAW
-/// formats, add fields as needed to capture format-specific metadata.
+/// This struct is designed for extension. Common metadata has dedicated typed
+/// fields ([`camera`](Self::camera), [`exif`](Self::exif), …); anything the
+/// library does not model is preserved losslessly via the raw-blob fields
+/// ([`exif_raw`](Self::exif_raw), [`xmp`](Self::xmp), …) and the typed generic
+/// table [`extra`](Self::extra), so new formats never force a schema change.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ImageMetadata {
@@ -253,6 +334,48 @@ pub struct ImageMetadata {
     pub image: ImageInfo,
     /// Raw XMP (XML) metadata bytes, if present in source image
     pub xmp: Option<Vec<u8>>,
+    /// Raw embedded ICC color profile bytes, if present
+    pub icc_profile: Option<Vec<u8>>,
+    /// Full raw EXIF block (TIFF byte stream) exactly as embedded, if present
+    pub exif_raw: Option<Vec<u8>>,
+    /// Raw manufacturer MakerNote blob, uninterpreted, if present
+    pub makernote_raw: Option<Vec<u8>>,
+    /// Raw IPTC IIM block, if present
+    pub iptc_raw: Option<Vec<u8>>,
+    /// Typed generic tag table.
+    ///
+    /// Holds metadata tags as a complete typed mirror of the source — including
+    /// tags also surfaced as dedicated fields above, and anything the library
+    /// does not model. Guarantees no metadata is silently dropped.
+    ///
+    /// Stored as a `Vec` (not a map) so it serializes cleanly in every serde
+    /// format and preserves source ordering. Use [`get`](Self::get) /
+    /// [`insert`](Self::insert) for map-like access.
+    pub extra: Vec<MetadataEntry>,
+}
+
+impl ImageMetadata {
+    /// Look up a generic tag in [`extra`](Self::extra).
+    ///
+    /// Returns the first entry matching `namespace` and `tag`.
+    pub fn get(&self, namespace: MetadataNamespace, tag: &str) -> Option<&MetadataValue> {
+        self.extra
+            .iter()
+            .find(|e| e.key.namespace == namespace && e.key.tag == tag)
+            .map(|e| &e.value)
+    }
+
+    /// Insert or overwrite a generic tag in [`extra`](Self::extra).
+    ///
+    /// If an entry with the same key already exists, its value is replaced;
+    /// otherwise the entry is appended.
+    pub fn insert(&mut self, key: MetadataKey, value: MetadataValue) {
+        if let Some(entry) = self.extra.iter_mut().find(|e| e.key == key) {
+            entry.value = value;
+        } else {
+            self.extra.push(MetadataEntry { key, value });
+        }
+    }
 }
 
 /// Trait for extracting unified metadata from format-specific structures.
@@ -285,5 +408,81 @@ mod tests {
         let sr = SRational::new(-1, 3);
         assert_eq!(sr.numerator, -1);
         assert_eq!(sr.denominator, 3);
+    }
+
+    #[test]
+    fn test_metadata_value_variants() {
+        // Each variant constructs and compares as expected.
+        assert_eq!(MetadataValue::U64(42), MetadataValue::U64(42));
+        assert_ne!(MetadataValue::U64(1), MetadataValue::I64(1));
+        let nested = MetadataValue::Array(vec![
+            MetadataValue::Text("a".into()),
+            MetadataValue::Bytes(vec![1, 2, 3]),
+            MetadataValue::URational(URational::new(1, 2)),
+        ]);
+        match nested {
+            MetadataValue::Array(items) => assert_eq!(items.len(), 3),
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_extra_get_insert() {
+        let mut md = ImageMetadata::default();
+        assert!(md.get(MetadataNamespace::Exif, "0x9209").is_none());
+
+        md.insert(
+            MetadataKey::new(MetadataNamespace::Exif, "0x9209"),
+            MetadataValue::U64(9),
+        );
+        assert_eq!(md.extra.len(), 1);
+        assert_eq!(
+            md.get(MetadataNamespace::Exif, "0x9209"),
+            Some(&MetadataValue::U64(9))
+        );
+
+        // Same key overwrites in place rather than appending.
+        md.insert(
+            MetadataKey::new(MetadataNamespace::Exif, "0x9209"),
+            MetadataValue::U64(16),
+        );
+        assert_eq!(md.extra.len(), 1);
+        assert_eq!(
+            md.get(MetadataNamespace::Exif, "0x9209"),
+            Some(&MetadataValue::U64(16))
+        );
+
+        // A different namespace with the same tag is a distinct entry.
+        md.insert(
+            MetadataKey::new(MetadataNamespace::Heic, "0x9209"),
+            MetadataValue::Text("hi".into()),
+        );
+        assert_eq!(md.extra.len(), 2);
+        assert!(md.get(MetadataNamespace::Gps, "0x9209").is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_image_metadata_serde_roundtrip_with_extra() {
+        let mut md = ImageMetadata {
+            icc_profile: Some(vec![0xAA, 0xBB]),
+            exif_raw: Some(vec![1, 2, 3, 4]),
+            ..Default::default()
+        };
+        md.insert(
+            MetadataKey::new(MetadataNamespace::Exif, "FlashEnergy"),
+            MetadataValue::Array(vec![
+                MetadataValue::URational(URational::new(3, 2)),
+                MetadataValue::F64(1.5),
+            ]),
+        );
+        md.insert(
+            MetadataKey::new(MetadataNamespace::Heic, "aux_count"),
+            MetadataValue::U64(2),
+        );
+
+        let json = serde_json::to_string(&md).expect("serialize");
+        let back: ImageMetadata = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(md, back, "ImageMetadata must survive a JSON round-trip");
     }
 }

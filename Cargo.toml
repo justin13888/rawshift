@@ -13,11 +13,14 @@ readme = "README.md"
 rust-version = "1.85"
 
 [package.metadata.docs.rs]
-all-features = true
+# `heic-vendored` is intentionally excluded: it builds libheif from source and
+# is an alternative linking mode to `heic`, not an additive feature.
+features = ["full"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 binrw          = { version = "0.15",   optional = true }
+libheif-rs     = { version = "2.7",    optional = true }
 libwebp-sys    = { version = "0.14",   optional = true }
 img-parts      = "0.4"
 jpeg-encoder   = { version = "0.7",    optional = true }
@@ -75,8 +78,16 @@ avif-decode  = ["dep:image"]
 avif-encode  = ["dep:ravif"]
 avif         = ["avif-decode", "avif-encode"]
 
-# Placeholder: HEIC/HEIF decode support (no dependencies yet)
-heic         = []
+# HEIC/HEIF decode support via libheif. `heic` and `heic-vendored` are
+# alternative linking modes — enable exactly one:
+#   heic          — links the system libheif (resolved by pkg-config).
+#   heic-vendored — builds libheif from source via cmake and links it
+#                   statically; downstream consumers opt into this for
+#                   self-contained builds (e.g. mobile cross-compilation).
+#                   Needs a C/C++ toolchain + cmake.
+heic-decode   = ["dep:libheif-rs"]
+heic          = ["heic-decode"]
+heic-vendored = ["heic-decode", "libheif-rs/embedded-libheif"]
 svg          = ["dep:resvg"]
 serde        = ["dep:serde"]
 
@@ -153,9 +164,17 @@ required-features = ["experimental"]
 name = "metadata_dump"
 required-features = ["experimental"]
 
+[[example]]
+name = "heic_inspect"
+required-features = ["heic"]
+
 [[test]]
 name = "raw_decode_fixtures"
 required-features = ["experimental"]
+
+[[test]]
+name = "heic_aux"
+required-features = ["heic"]
 
 [[test]]
 name = "tiff_parser_tests"

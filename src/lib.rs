@@ -17,7 +17,7 @@
 //! - GIF, JPEG, PNG, WebP, JPEG XL, TIFF
 //! - SVG (requires `svg` feature)
 //! - AVIF decode + encode (requires `avif` feature)
-//! - HEIC (detection only; decode requires a licensed H.265 library)
+//! - HEIC decode (requires `heic` feature; via libheif)
 //! - APV (detection only; no Rust decoder exists yet)
 //!
 //! ## Quick Start
@@ -53,6 +53,8 @@
 //! - `jxl-decode`: JXL decoding; `jxl-encode`: JXL encoding (requires `jxl-decode`)
 //! - `gif-decode`, `tiff-decode`: GIF/TIFF decoding (no encode support)
 //! - `avif-decode`, `avif-encode`: AVIF decode/encode; `avif` enables both
+//! - `heic`: HEIC/HEIF decoding via system libheif; `heic-vendored` builds
+//!   libheif from source and links it statically
 //! - `svg`: SVG decoding (requires `resvg`)
 //! - `tiff-parser`: Internal TIFF structure parser + public `TiffParser` API
 //! - `arw`, `cr2`, `cr3`, `crw`, `nef`, `raf`: RAW format decode (alias for `{format}-decode`)

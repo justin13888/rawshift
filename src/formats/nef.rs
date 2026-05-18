@@ -468,6 +468,11 @@ impl<R: Read + Seek> crate::core::MetadataExtractor for NefFile<R> {
                 default_crop_size: m.map(|x| (x.active_area.size.width, x.active_area.size.height)),
             },
             xmp: None,
+            icc_profile: None,
+            exif_raw: None,
+            makernote_raw: None,
+            iptc_raw: None,
+            extra: Vec::new(),
         }
     }
 }

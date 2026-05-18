@@ -161,6 +161,21 @@ fn detect_svg_from_file() {
     assert_eq!(fmt, Some(StandardFormat::Svg), "SVG detection from file");
 }
 
+#[cfg(feature = "heic")]
+#[test]
+fn detect_heic_from_file() {
+    let gt = match load_standard_ground_truth("heic") {
+        Some(gt) => gt,
+        None => return,
+    };
+    let path = test_data_path(&format!("heic/{}", gt.file_name));
+    skip_if_missing!(path);
+
+    let data = std::fs::read(&path).unwrap();
+    let fmt = detect_standard_format(&data);
+    assert_eq!(fmt, Some(StandardFormat::Heic), "HEIC detection from file");
+}
+
 // ============================================================================
 // Decode Dimensions from File
 // ============================================================================
@@ -238,6 +253,12 @@ fn decode_avif_dimensions_from_file() {
     assert_decode_dimensions("avif", StandardFormat::Avif);
 }
 
+#[cfg(feature = "heic")]
+#[test]
+fn decode_heic_dimensions_from_file() {
+    assert_decode_dimensions("heic", StandardFormat::Heic);
+}
+
 // ============================================================================
 // Full Detect + Decode Pipeline from File
 // ============================================================================
@@ -302,6 +323,12 @@ fn detect_then_decode_svg_from_file() {
 #[test]
 fn detect_then_decode_avif_from_file() {
     assert_detect_then_decode("avif", StandardFormat::Avif);
+}
+
+#[cfg(feature = "heic")]
+#[test]
+fn detect_then_decode_heic_from_file() {
+    assert_detect_then_decode("heic", StandardFormat::Heic);
 }
 
 // ============================================================================
@@ -448,4 +475,10 @@ fn read_metadata_webp_from_file() {
 #[test]
 fn read_metadata_avif_from_file() {
     assert_metadata_extraction("avif", StandardFormat::Avif);
+}
+
+#[cfg(feature = "heic")]
+#[test]
+fn read_metadata_heic_from_file() {
+    assert_metadata_extraction("heic", StandardFormat::Heic);
 }

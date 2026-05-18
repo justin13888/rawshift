@@ -513,7 +513,114 @@ impl ExifParser {
             }
         }
 
+        // ── Generic tag table ─────────────────────────────────────────────────
+        // Mirror every EXIF tag into the typed `extra` table so nothing is lost,
+        // even tags the curated fields above do not model.
+        Self::populate_extra(exif, &mut md);
+
         md
+    }
+
+    /// Populate [`ImageMetadata::extra`] with a typed mirror of every EXIF tag.
+    fn populate_extra(exif: &Metadata, md: &mut crate::core::metadata::ImageMetadata) {
+        use crate::core::metadata::{MetadataKey, MetadataNamespace};
+
+        for tag in exif {
+            let namespace = match tag.get_group() {
+                ExifTagGroup::GPS => MetadataNamespace::Gps,
+                _ => MetadataNamespace::Exif,
+            };
+            let key = MetadataKey::new(namespace, format!("0x{:04x}", tag.as_u16()));
+            md.insert(key, exif_tag_value(tag));
+        }
+    }
+}
+
+/// Convert a single `little_exif` tag into a typed [`MetadataValue`].
+///
+/// Values are decoded little-endian (the endianness requested from
+/// `value_as_u8_vec`). Single-element values collapse to a scalar; multi-element
+/// values become a [`MetadataValue::Array`].
+fn exif_tag_value(tag: &ExifTag) -> crate::core::metadata::MetadataValue {
+    use crate::core::metadata::{MetadataValue, SRational, URational};
+    use little_exif::endian::Endian;
+    use little_exif::exif_tag_format::ExifTagFormat as Fmt;
+
+    let raw = tag.value_as_u8_vec(&Endian::Little);
+
+    fn collapse(mut vals: Vec<MetadataValue>) -> MetadataValue {
+        if vals.len() == 1 {
+            vals.pop().unwrap()
+        } else {
+            MetadataValue::Array(vals)
+        }
+    }
+
+    match tag.format() {
+        Fmt::STRING => MetadataValue::Text(
+            String::from_utf8_lossy(&raw)
+                .trim_end_matches('\0')
+                .to_string(),
+        ),
+        Fmt::UNDEF => MetadataValue::Bytes(raw),
+        Fmt::INT8U => collapse(raw.iter().map(|&b| MetadataValue::U64(b as u64)).collect()),
+        Fmt::INT8S => collapse(
+            raw.iter()
+                .map(|&b| MetadataValue::I64(b as i8 as i64))
+                .collect(),
+        ),
+        Fmt::INT16U => collapse(
+            raw.chunks_exact(2)
+                .map(|c| MetadataValue::U64(u16::from_le_bytes([c[0], c[1]]) as u64))
+                .collect(),
+        ),
+        Fmt::INT16S => collapse(
+            raw.chunks_exact(2)
+                .map(|c| MetadataValue::I64(i16::from_le_bytes([c[0], c[1]]) as i64))
+                .collect(),
+        ),
+        Fmt::INT32U => collapse(
+            raw.chunks_exact(4)
+                .map(|c| MetadataValue::U64(u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64))
+                .collect(),
+        ),
+        Fmt::INT32S => collapse(
+            raw.chunks_exact(4)
+                .map(|c| MetadataValue::I64(i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i64))
+                .collect(),
+        ),
+        Fmt::FLOAT => collapse(
+            raw.chunks_exact(4)
+                .map(|c| MetadataValue::F64(f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64))
+                .collect(),
+        ),
+        Fmt::DOUBLE => collapse(
+            raw.chunks_exact(8)
+                .map(|c| {
+                    MetadataValue::F64(f64::from_le_bytes([
+                        c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
+                    ]))
+                })
+                .collect(),
+        ),
+        Fmt::RATIONAL64U => collapse(
+            raw.chunks_exact(8)
+                .map(|c| {
+                    let num = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                    let den = u32::from_le_bytes([c[4], c[5], c[6], c[7]]);
+                    MetadataValue::URational(URational::new(num, den))
+                })
+                .collect(),
+        ),
+        Fmt::RATIONAL64S => collapse(
+            raw.chunks_exact(8)
+                .map(|c| {
+                    let num = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                    let den = i32::from_le_bytes([c[4], c[5], c[6], c[7]]);
+                    MetadataValue::SRational(SRational::new(num, den))
+                })
+                .collect(),
+        ),
     }
 }
 

@@ -145,7 +145,7 @@ python3 scripts/test_coverage_report.py
 | SVG    | Complete | None (not raster metadata)          |
 | AVIF   | Feature  | EXIF + ICC + XMP (`avif-encode`)    |
 | JXL    | Feature  | EXIF + ICC + XMP (`jxl-encode`)     |
-| HEIC   | N/A      | Detection only (no decode)          |
+| HEIC   | Feature  | Read-only EXIF/ICC/XMP (`heic`)     |
 | APV    | N/A      | Detection only (no decode)          |
 
 ---

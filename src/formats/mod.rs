@@ -17,6 +17,8 @@ pub(crate) mod dng;
 pub(crate) mod dng_export;
 mod encode;
 pub mod export;
+#[cfg(feature = "heic-decode")]
+pub(crate) mod heic;
 #[cfg(feature = "nef-decode")]
 pub(crate) mod nef;
 #[cfg(feature = "raf-decode")]
@@ -26,6 +28,8 @@ pub(crate) mod standard;
 #[cfg(feature = "dng-encode")]
 pub use dng_export::{DngExportConfig, export_dng};
 pub use encode::{encode_rgb_image, encode_rgb_image_to_writer};
+#[cfg(feature = "heic-decode")]
+pub use heic::{HeicAuxImage, HeicAuxKind, HeicFile};
 pub use standard::{
     StandardFormat, decode_standard_image, detect_standard_format, read_standard_image_metadata,
 };

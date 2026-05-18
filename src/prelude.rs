@@ -5,7 +5,8 @@
 //! # Contents
 //!
 //! - **`core`** — `RawImage`, `RgbImage`, `Size`, `Rect`, `Point`, `CfaPattern`,
-//!   `ImageMetadata`, and related structs.
+//!   `ImageMetadata`, the generic metadata model (`MetadataValue`, `MetadataKey`,
+//!   `MetadataNamespace`, `MetadataEntry`), and related structs.
 //! - **`data`** — Camera color-calibration database (`CameraCalibration`,
 //!   `get_camera_calibration`, `all_cameras`).
 //! - **`error`** — `RawError`, `ParseError`, `FormatError`, `ProcessingError`,
@@ -25,7 +26,8 @@ pub use crate::core::IccProfile;
 pub use crate::core::image::{CfaPattern, RawImage, Rect, RgbImage, Size, XTransPattern};
 pub use crate::core::metadata::{
     CameraInfo, DateTimeInfo, DngCalibrationInfo, DngColorInfo, DngProfileInfo, ExifInfo, GpsInfo,
-    ImageInfo, ImageMetadata, MetadataExtractor,
+    ImageInfo, ImageMetadata, MetadataEntry, MetadataExtractor, MetadataKey, MetadataNamespace,
+    MetadataValue,
 };
 pub use crate::core::pixel::{
     FromF32, Rgb, Rgb8, Rgb16, RgbF32, Rgba, Rgba8, Rgba16, RgbaF32, Sample,
@@ -56,6 +58,9 @@ pub use crate::formats::{
 
 #[cfg(any_raw)]
 pub use crate::formats::{RawFile, RawFormat};
+
+#[cfg(feature = "heic-decode")]
+pub use crate::formats::{HeicAuxImage, HeicAuxKind, HeicFile};
 
 #[cfg(feature = "dng-encode")]
 pub use crate::formats::{DngExportConfig, export_dng};
