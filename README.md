@@ -102,8 +102,8 @@ cargo test --features=serde
 
 ## Sovereignty
 
-It is my intention (as developer and maintainer) to ensure Rawshift remains open permissively to all.
+It is my intention (as developer and maintainer) to ensure rawshift remains open permissively to all.
 
 ## License
 
-While many open-source implementations historically used LGPL or similar licenses, RawShift prefers a more permissive license (MPL-2.0; see [LICENSE](./LICENSE)). You are free to link to any software although we welcome contributions in any way.
+While many open-source implementations historically used LGPL or similar licenses, rawshift prefers a more permissive license (MPL-2.0; see [LICENSE](./LICENSE)). You are free to link to any software although we welcome contributions in any way.
