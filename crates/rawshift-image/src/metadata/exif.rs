@@ -263,24 +263,27 @@ impl<'a> ExifBuilder<'a> {
         Ok(output.into_inner())
     }
 
-    /// Append EXIF metadata to existing AVIF file.
+    /// Append EXIF metadata to an in-memory AVIF byte stream.
     ///
-    /// Uses little_exif's native HEIF support (AVIF uses the HEIF/ISOBMFF container).
+    /// AVIF uses the HEIF/ISOBMFF container; `little_exif`'s `write_to_vec`
+    /// splices the EXIF item directly into the buffer — no file path required.
     #[cfg_attr(not(feature = "avif"), allow(dead_code))]
-    pub fn append_to_avif_file(&self, path: &std::path::Path) -> Result<(), ExifError> {
+    pub fn append_to_avif(&self, mut avif_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
         let exif = self.build();
-        exif.write_to_file(path)
-            .map_err(|e| ExifError::Container(format!("AVIF EXIF embedding failed: {}", e)))
+        exif.write_to_vec(&mut avif_data, FileExtension::HEIF)
+            .map_err(|e| ExifError::Container(format!("AVIF EXIF embedding failed: {e}")))?;
+        Ok(avif_data)
     }
 
-    /// Append EXIF metadata to existing JXL file.
+    /// Append EXIF metadata to an in-memory JXL byte stream.
     ///
-    /// Uses little_exif's native JXL support.
+    /// Uses `little_exif`'s native JXL container support — no file path required.
     #[cfg_attr(not(feature = "jxl-encode"), allow(dead_code))]
-    pub fn append_to_jxl_file(&self, path: &std::path::Path) -> Result<(), ExifError> {
+    pub fn append_to_jxl(&self, mut jxl_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
         let exif = self.build();
-        exif.write_to_file(path)
-            .map_err(|e| ExifError::Container(format!("JXL EXIF embedding failed: {}", e)))
+        exif.write_to_vec(&mut jxl_data, FileExtension::JXL)
+            .map_err(|e| ExifError::Container(format!("JXL EXIF embedding failed: {e}")))?;
+        Ok(jxl_data)
     }
 }
 

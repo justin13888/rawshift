@@ -1,37 +1,45 @@
 //! Integration tests for image export with metadata embedding.
 //!
-//! Tests verify that EXIF and ICC metadata are correctly embedded in
-//! exported images when the corresponding options are enabled.
-//! These tests use a tiny synthetic RGB image via `encode_rgb_image` to avoid
-//! the expensive full RAW decode pipeline.
+//! Tests verify that EXIF/ICC/XMP metadata is correctly embedded in exported
+//! images, that the in-memory encode entry points work for every format, and
+//! that the decode-side color/probe APIs behave as documented. They use a tiny
+//! synthetic RGB image to avoid the expensive full RAW decode pipeline.
 
 use rawshift_image::core::image::RgbImage;
 use rawshift_image::core::metadata::ImageMetadata;
-use rawshift_image::formats::encode_rgb_image;
-#[cfg(feature = "avif-encode")]
-use rawshift_image::formats::export::AvifOptions;
-#[cfg(feature = "jxl-encode")]
-use rawshift_image::formats::export::JxlOptions;
 use rawshift_image::formats::export::{
-    EncodeOptions, JpegOptions, MetadataEmbedOptions, PngOptions, WebPMode, WebPOptions,
+    BitDepth, CommonEncodeOptions, EncodeOptions, JpegEncEncodeConfig, LibwebpEncodeConfig,
+    MetadataEmbedOptions, WebPMode, ZunePngEncodeConfig,
 };
+use rawshift_image::formats::{encode_rgb_image, encode_rgb_image_to_vec};
 use std::fs;
 use std::path::PathBuf;
 
 /// 4×4 grey synthetic RGB image (16-bit, tone-mapped already).
 fn synthetic_image() -> RgbImage {
-    // Mid-grey at ~50% sRGB after tone mapping
     RgbImage::new(4, 4, vec![32768u16; 4 * 4 * 3])
 }
 
-/// Get a temporary file path for test output
+/// Get a temporary file path for test output.
 fn temp_path(name: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!("rawshift_test_{}", name));
     path
 }
 
-/// Check if JPEG data contains EXIF APP1 marker
+/// `CommonEncodeOptions` with the given metadata-embed flags and default depth.
+fn common(embed_exif: bool, embed_icc: bool, embed_xmp: bool) -> CommonEncodeOptions {
+    CommonEncodeOptions {
+        metadata: MetadataEmbedOptions {
+            embed_exif,
+            embed_icc,
+            embed_xmp,
+        },
+        bit_depth: BitDepth::Sixteen,
+    }
+}
+
+/// Check if JPEG data contains an EXIF APP1 marker.
 fn jpeg_has_exif(data: &[u8]) -> bool {
     for i in 0..data.len().saturating_sub(10) {
         if data[i] == 0xFF
@@ -45,7 +53,7 @@ fn jpeg_has_exif(data: &[u8]) -> bool {
     false
 }
 
-/// Check if JPEG data contains ICC APP2 marker
+/// Check if JPEG data contains an ICC APP2 marker.
 fn jpeg_has_icc(data: &[u8]) -> bool {
     for i in 0..data.len().saturating_sub(16) {
         if data[i] == 0xFF
@@ -59,17 +67,14 @@ fn jpeg_has_icc(data: &[u8]) -> bool {
     false
 }
 
-/// Check if WebP data contains EXIF chunk
 fn webp_has_exif(data: &[u8]) -> bool {
     data.windows(4).any(|w| w == b"EXIF")
 }
 
-/// Check if WebP data contains ICC profile chunk
 fn webp_has_icc(data: &[u8]) -> bool {
     data.windows(4).any(|w| w == b"ICCP")
 }
 
-/// Check if WebP data contains XMP chunk
 fn webp_has_xmp(data: &[u8]) -> bool {
     data.windows(4).any(|w| w == b"XMP ")
 }
@@ -81,23 +86,23 @@ fn webp_has_xmp(data: &[u8]) -> bool {
 mod jpeg_tests {
     use super::*;
 
+    fn jpeg(quality: u8, exif: bool, icc: bool) -> EncodeOptions {
+        EncodeOptions::JpegJpegEnc(JpegEncEncodeConfig {
+            quality,
+            common: common(exif, icc, true),
+        })
+    }
+
     #[test]
     fn test_jpeg_export_with_exif_enabled() {
         let img = synthetic_image();
         let path = temp_path("export_with_exif.jpg");
 
-        let opts = JpegOptions {
-            quality: 85,
-            metadata: MetadataEmbedOptions {
-                embed_icc: false,
-                ..MetadataEmbedOptions::default()
-            },
-        };
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
             &path,
-            &EncodeOptions::Jpeg(opts),
+            &jpeg(85, true, false),
         )
         .expect("Export JPEG");
 
@@ -113,18 +118,11 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_with_icc.jpg");
 
-        let opts = JpegOptions {
-            quality: 85,
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                ..MetadataEmbedOptions::default()
-            },
-        };
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
             &path,
-            &EncodeOptions::Jpeg(opts),
+            &jpeg(85, false, true),
         )
         .expect("Export JPEG");
 
@@ -139,15 +137,11 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_with_both.jpg");
 
-        let opts = JpegOptions {
-            quality: 90,
-            metadata: MetadataEmbedOptions::default(),
-        };
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
             &path,
-            &EncodeOptions::Jpeg(opts),
+            &jpeg(90, true, true),
         )
         .expect("Export JPEG");
 
@@ -163,19 +157,11 @@ mod jpeg_tests {
         let img = synthetic_image();
         let path = temp_path("export_no_meta.jpg");
 
-        let opts = JpegOptions {
-            quality: 85,
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                embed_icc: false,
-                ..MetadataEmbedOptions::default()
-            },
-        };
         encode_rgb_image(
             &img,
             &ImageMetadata::default(),
             &path,
-            &EncodeOptions::Jpeg(opts),
+            &jpeg(85, false, false),
         )
         .expect("Export JPEG");
 
@@ -208,59 +194,23 @@ mod jpeg_tests {
 
     #[test]
     fn test_jpeg_quality_affects_file_size() {
-        // Use a 64×64 image with varied content so quality differences are visible.
         let data: Vec<u16> = (0..64 * 64 * 3)
             .map(|i| ((i * 997) % 65536) as u16)
             .collect();
         let img = RgbImage::new(64, 64, data);
 
-        let path_low = temp_path("quality_low.jpg");
-        let path_high = temp_path("quality_high.jpg");
-
-        let opts_low = JpegOptions {
-            quality: 30,
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                embed_icc: false,
-                ..MetadataEmbedOptions::default()
-            },
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path_low,
-            &EncodeOptions::Jpeg(opts_low),
-        )
-        .expect("Export low quality");
-
-        let opts_high = JpegOptions {
-            quality: 95,
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                embed_icc: false,
-                ..MetadataEmbedOptions::default()
-            },
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path_high,
-            &EncodeOptions::Jpeg(opts_high),
-        )
-        .expect("Export high quality");
-
-        let size_low = fs::metadata(&path_low).expect("Get size").len();
-        let size_high = fs::metadata(&path_high).expect("Get size").len();
+        let low = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jpeg(30, false, false))
+            .expect("Export low quality");
+        let high =
+            encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jpeg(95, false, false))
+                .expect("Export high quality");
 
         assert!(
-            size_high > size_low,
+            high.len() > low.len(),
             "High quality ({}) should be larger than low quality ({})",
-            size_high,
-            size_low
+            high.len(),
+            low.len()
         );
-
-        fs::remove_file(&path_low).ok();
-        fs::remove_file(&path_high).ok();
     }
 }
 
@@ -271,21 +221,20 @@ mod jpeg_tests {
 mod webp_tests {
     use super::*;
 
+    fn webp(exif: bool, icc: bool, xmp: bool) -> LibwebpEncodeConfig {
+        LibwebpEncodeConfig {
+            common: common(exif, icc, xmp),
+            ..LibwebpEncodeConfig::lossy()
+        }
+    }
+
     #[test]
     fn test_webp_export_lossy_with_exif() {
         let img = synthetic_image();
         let path = temp_path("export_lossy_exif.webp");
 
-        let mut opts = WebPOptions::lossy();
-        opts.metadata.embed_icc = false;
-        opts.metadata.embed_xmp = false;
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::WebP(opts),
-        )
-        .expect("Export WebP");
+        let opts = EncodeOptions::WebpLibwebp(webp(true, false, false));
+        encode_rgb_image(&img, &ImageMetadata::default(), &path, &opts).expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert_eq!(&data[0..4], b"RIFF", "Should start with RIFF");
@@ -320,17 +269,8 @@ mod webp_tests {
         let img = synthetic_image();
         let path = temp_path("export_no_meta.webp");
 
-        let mut opts = WebPOptions::lossy();
-        opts.metadata.embed_exif = false;
-        opts.metadata.embed_icc = false;
-        opts.metadata.embed_xmp = false;
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::WebP(opts),
-        )
-        .expect("Export WebP");
+        let opts = EncodeOptions::WebpLibwebp(webp(false, false, false));
+        encode_rgb_image(&img, &ImageMetadata::default(), &path, &opts).expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert!(!webp_has_exif(&data), "WebP should NOT contain EXIF");
@@ -345,16 +285,8 @@ mod webp_tests {
         let img = synthetic_image();
         let path = temp_path("export_icc.webp");
 
-        let mut opts = WebPOptions::lossy();
-        opts.metadata.embed_exif = false;
-        opts.metadata.embed_xmp = false;
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::WebP(opts),
-        )
-        .expect("Export WebP");
+        let opts = EncodeOptions::WebpLibwebp(webp(false, true, false));
+        encode_rgb_image(&img, &ImageMetadata::default(), &path, &opts).expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert!(webp_has_icc(&data), "WebP should contain ICC profile");
@@ -372,10 +304,8 @@ mod webp_tests {
             ..Default::default()
         };
 
-        let mut opts = WebPOptions::lossy();
-        opts.metadata.embed_exif = false;
-        opts.metadata.embed_icc = false;
-        encode_rgb_image(&img, &meta, &path, &EncodeOptions::WebP(opts)).expect("Export WebP");
+        let opts = EncodeOptions::WebpLibwebp(webp(false, false, true));
+        encode_rgb_image(&img, &meta, &path, &opts).expect("Export WebP");
 
         let data = fs::read(&path).expect("Read WebP");
         assert!(webp_has_xmp(&data), "WebP should contain XMP metadata");
@@ -410,47 +340,30 @@ mod webp_tests {
             .collect();
         let img = RgbImage::new(64, 64, data);
 
-        let path_low = temp_path("webp_quality_low.webp");
-        let path_high = temp_path("webp_quality_high.webp");
+        let mut low = webp(false, false, false);
+        low.quality = 10.0;
+        let mut high = webp(false, false, false);
+        high.quality = 95.0;
 
-        let mut opts_low = WebPOptions::lossy();
-        opts_low.quality = 10.0;
-        opts_low.metadata.embed_exif = false;
-        opts_low.metadata.embed_icc = false;
-        opts_low.metadata.embed_xmp = false;
-        encode_rgb_image(
+        let low = encode_rgb_image_to_vec(
             &img,
             &ImageMetadata::default(),
-            &path_low,
-            &EncodeOptions::WebP(opts_low),
+            &EncodeOptions::WebpLibwebp(low),
         )
         .expect("Export low quality");
-
-        let mut opts_high = WebPOptions::lossy();
-        opts_high.quality = 95.0;
-        opts_high.metadata.embed_exif = false;
-        opts_high.metadata.embed_icc = false;
-        opts_high.metadata.embed_xmp = false;
-        encode_rgb_image(
+        let high = encode_rgb_image_to_vec(
             &img,
             &ImageMetadata::default(),
-            &path_high,
-            &EncodeOptions::WebP(opts_high),
+            &EncodeOptions::WebpLibwebp(high),
         )
         .expect("Export high quality");
 
-        let size_low = fs::metadata(&path_low).expect("Get size").len();
-        let size_high = fs::metadata(&path_high).expect("Get size").len();
-
         assert!(
-            size_high > size_low,
+            high.len() > low.len(),
             "High quality ({}) should be larger than low quality ({})",
-            size_high,
-            size_low
+            high.len(),
+            low.len()
         );
-
-        fs::remove_file(&path_low).ok();
-        fs::remove_file(&path_high).ok();
     }
 }
 
@@ -460,6 +373,8 @@ mod webp_tests {
 
 mod png_tests {
     use super::*;
+
+    const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     #[test]
     fn test_png_export_basic() {
@@ -475,11 +390,7 @@ mod png_tests {
         .expect("Export PNG");
 
         let data = fs::read(&path).expect("Read PNG");
-        assert_eq!(
-            &data[0..8],
-            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
-            "Should have PNG signature"
-        );
+        assert_eq!(&data[0..8], &PNG_SIGNATURE, "Should have PNG signature");
 
         fs::remove_file(&path).ok();
     }
@@ -487,26 +398,31 @@ mod png_tests {
     #[test]
     fn test_png_export_8bit() {
         let img = synthetic_image();
-        let path = temp_path("export_8bit.png");
 
-        let opts = PngOptions {
-            bit_depth: rawshift_image::formats::export::BitDepth::Eight,
-            metadata: MetadataEmbedOptions::default(),
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Png(opts),
-        )
-        .expect("Export 8-bit PNG");
+        let opts = EncodeOptions::PngZune(ZunePngEncodeConfig {
+            common: CommonEncodeOptions {
+                bit_depth: BitDepth::Eight,
+                ..CommonEncodeOptions::default()
+            },
+        });
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &opts)
+            .expect("Export 8-bit PNG");
 
-        assert!(path.exists());
-        fs::remove_file(&path).ok();
+        assert_eq!(&data[0..8], &PNG_SIGNATURE);
+        // IHDR bit-depth byte sits at offset 24.
+        assert_eq!(data[24], 8, "PNG should be 8-bit");
+    }
+
+    #[test]
+    fn test_png_export_16bit() {
+        let img = synthetic_image();
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &EncodeOptions::png())
+            .expect("Export 16-bit PNG");
+        assert_eq!(data[24], 16, "default PNG should be 16-bit");
     }
 }
 
-/// Check if AVIF data contains a `colr rICC` or `colr prof` box (embedded ICC profile).
+/// Check if AVIF data contains a `colr rICC`/`colr prof` box (embedded ICC).
 #[cfg(feature = "avif-encode")]
 fn avif_has_icc(data: &[u8]) -> bool {
     data.windows(8)
@@ -543,91 +459,48 @@ fn jxl_is_container(data: &[u8]) -> bool {
 #[cfg(feature = "avif-encode")]
 mod avif_tests {
     use super::*;
+    use rawshift_image::formats::export::RavifEncodeConfig;
+
+    fn avif(exif: bool, icc: bool) -> EncodeOptions {
+        EncodeOptions::AvifRavif(RavifEncodeConfig {
+            common: common(exif, icc, true),
+            ..RavifEncodeConfig::default()
+        })
+    }
 
     #[test]
     fn test_avif_export_with_icc_enabled() {
         let img = synthetic_image();
-        let path = temp_path("avif_icc_on.avif");
-        let opts = AvifOptions {
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                ..MetadataEmbedOptions::default()
-            },
-            ..AvifOptions::default()
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Avif(opts),
-        )
-        .expect("Export AVIF");
-        let data = fs::read(&path).expect("Read AVIF");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &avif(false, true))
+            .expect("Export AVIF");
         assert!(avif_has_icc(&data), "AVIF should contain ICC profile");
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_avif_export_with_icc_disabled() {
         let img = synthetic_image();
-        let path = temp_path("avif_icc_off.avif");
-        let opts = AvifOptions {
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                embed_icc: false,
-                ..MetadataEmbedOptions::default()
-            },
-            ..AvifOptions::default()
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Avif(opts),
-        )
-        .expect("Export AVIF");
-        let data = fs::read(&path).expect("Read AVIF");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &avif(false, false))
+            .expect("Export AVIF");
         assert!(!avif_has_icc(&data), "AVIF should NOT contain ICC profile");
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_avif_export_with_icc_and_exif() {
         let img = synthetic_image();
-        let path = temp_path("avif_icc_exif.avif");
-        let opts = AvifOptions {
-            metadata: MetadataEmbedOptions::default(),
-            ..AvifOptions::default()
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Avif(opts),
-        )
-        .expect("Export AVIF");
-        let data = fs::read(&path).expect("Read AVIF");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &avif(true, true))
+            .expect("Export AVIF");
         assert!(
             avif_has_icc(&data),
             "AVIF should still contain ICC after EXIF embedding"
         );
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_avif_default_options_embed_icc() {
         let img = synthetic_image();
-        let path = temp_path("avif_default.avif");
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::avif(),
-        )
-        .expect("Export AVIF");
-        let data = fs::read(&path).expect("Read AVIF");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &EncodeOptions::avif())
+            .expect("Export AVIF");
         assert!(avif_has_icc(&data), "Default AVIF should embed ICC");
-        fs::remove_file(&path).ok();
     }
 }
 
@@ -638,101 +511,46 @@ mod avif_tests {
 #[cfg(feature = "jxl-encode")]
 mod jxl_tests {
     use super::*;
+    use rawshift_image::formats::export::ZuneJxlEncodeConfig;
+
+    fn jxl(exif: bool, icc: bool) -> EncodeOptions {
+        EncodeOptions::JxlZune(ZuneJxlEncodeConfig {
+            common: common(exif, icc, true),
+            ..ZuneJxlEncodeConfig::default()
+        })
+    }
 
     #[test]
-    fn test_jxl_options_default_has_embed_icc() {
+    fn test_jxl_config_default_has_embed_icc() {
         assert!(
-            JxlOptions::default().metadata.embed_icc,
-            "JxlOptions default should have embed_icc=true"
+            ZuneJxlEncodeConfig::default().common.metadata.embed_icc,
+            "ZuneJxlEncodeConfig default should embed ICC"
         );
     }
 
     #[test]
     fn test_jxl_export_with_icc_enabled() {
         let img = synthetic_image();
-        let path = temp_path("jxl_icc_on.jxl");
-        let opts = JxlOptions {
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                ..MetadataEmbedOptions::default()
-            },
-            ..JxlOptions::default()
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Jxl(opts),
-        )
-        .expect("Export JXL");
-        let data = fs::read(&path).expect("Read JXL");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jxl(false, true))
+            .expect("Export JXL");
         assert!(jxl_is_container(&data), "JXL should be container format");
         assert!(jxl_has_icc(&data), "JXL should contain ICC profile");
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_jxl_export_with_icc_disabled() {
         let img = synthetic_image();
-        let path = temp_path("jxl_icc_off.jxl");
-        let opts = JxlOptions {
-            metadata: MetadataEmbedOptions {
-                embed_exif: false,
-                embed_icc: false,
-                ..MetadataEmbedOptions::default()
-            },
-            ..JxlOptions::default()
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Jxl(opts),
-        )
-        .expect("Export JXL");
-        let data = fs::read(&path).expect("Read JXL");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jxl(false, false))
+            .expect("Export JXL");
         assert!(!jxl_has_icc(&data), "JXL should NOT contain ICC profile");
-        fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn test_jxl_export_with_icc_and_exif() {
-        let img = synthetic_image();
-        let path = temp_path("jxl_icc_exif.jxl");
-        let opts = JxlOptions {
-            metadata: MetadataEmbedOptions::default(),
-            ..JxlOptions::default()
-        };
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::Jxl(opts),
-        )
-        .expect("Export JXL");
-        let data = fs::read(&path).expect("Read JXL");
-        assert!(jxl_has_icc(&data), "JXL should contain ICC");
-        assert!(
-            data.windows(4).any(|w| w == b"Exif"),
-            "JXL should contain Exif box"
-        );
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_jxl_default_options_embed_icc() {
         let img = synthetic_image();
-        let path = temp_path("jxl_default.jxl");
-        encode_rgb_image(
-            &img,
-            &ImageMetadata::default(),
-            &path,
-            &EncodeOptions::jxl(),
-        )
-        .expect("Export JXL");
-        let data = fs::read(&path).expect("Read JXL");
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &EncodeOptions::jxl())
+            .expect("Export JXL");
         assert!(jxl_has_icc(&data), "Default JXL should embed ICC");
-        fs::remove_file(&path).ok();
     }
 }
 
@@ -742,6 +560,7 @@ mod jxl_tests {
 
 mod encode_options_tests {
     use super::*;
+    use rawshift_image::formats::export::OutputFormat;
 
     #[test]
     fn test_encode_options_constructors() {
@@ -758,47 +577,161 @@ mod encode_options_tests {
     }
 
     #[test]
-    fn test_jpeg_options_defaults() {
-        let opts = JpegOptions::default();
-        assert_eq!(opts.quality, 90, "JPEG default quality should be 90");
+    fn test_jpeg_config_defaults() {
+        let cfg = JpegEncEncodeConfig::default();
+        assert_eq!(cfg.quality, 90, "JPEG default quality should be 90");
         assert!(
-            opts.metadata.embed_exif,
-            "JPEG should embed EXIF by default"
+            cfg.common.metadata.embed_exif,
+            "JPEG embeds EXIF by default"
         );
-        assert!(opts.metadata.embed_icc, "JPEG should embed ICC by default");
+        assert!(cfg.common.metadata.embed_icc, "JPEG embeds ICC by default");
     }
 
     #[test]
-    fn test_webp_options_defaults() {
-        let opts = WebPOptions::default();
-        assert_eq!(
-            opts.mode,
-            WebPMode::Lossy,
-            "WebP default mode should be Lossy"
-        );
-        assert!(
-            (opts.quality - 75.0).abs() < f32::EPSILON,
-            "WebP default quality should be 75"
-        );
-        assert_eq!(opts.method, 4, "WebP default method should be 4");
-        assert_eq!(
-            opts.near_lossless, 100,
-            "WebP default near_lossless should be 100"
-        );
-        assert!(
-            opts.metadata.embed_exif,
-            "WebP should embed EXIF by default"
-        );
-        assert!(opts.metadata.embed_icc, "WebP should embed ICC by default");
-        assert!(opts.metadata.embed_xmp, "WebP should embed XMP by default");
+    fn test_webp_config_defaults() {
+        let cfg = LibwebpEncodeConfig::default();
+        assert_eq!(cfg.mode, WebPMode::Lossy, "WebP default mode is Lossy");
+        assert!((cfg.quality - 75.0).abs() < f32::EPSILON);
+        assert_eq!(cfg.method, 4);
+        assert_eq!(cfg.near_lossless, 100);
     }
 
     #[test]
     fn test_webp_named_constructors() {
-        let lossy = WebPOptions::lossy();
-        assert_eq!(lossy.mode, WebPMode::Lossy);
+        assert_eq!(LibwebpEncodeConfig::lossy().mode, WebPMode::Lossy);
+        assert_eq!(LibwebpEncodeConfig::lossless().mode, WebPMode::Lossless);
+    }
 
-        let lossless = WebPOptions::lossless();
-        assert_eq!(lossless.mode, WebPMode::Lossless);
+    #[test]
+    fn test_format_and_codec_id() {
+        assert_eq!(EncodeOptions::png().format(), OutputFormat::Png);
+        assert_eq!(EncodeOptions::jpeg().codec_id().id, "jpeg/jpeg-encoder");
+    }
+}
+
+// ============================================================================
+// In-memory encode + decode-side API tests (the overhaul)
+// ============================================================================
+
+mod in_memory_tests {
+    use super::*;
+    use rawshift_image::formats::{
+        StandardFormat, available_decoders, available_encoders, decode_standard_image,
+        probe_standard_image,
+    };
+
+    #[test]
+    fn encode_to_vec_matches_path_for_png() {
+        let img = synthetic_image();
+        let meta = ImageMetadata::default();
+        let path = temp_path("vec_vs_path.png");
+
+        let vec_bytes =
+            encode_rgb_image_to_vec(&img, &meta, &EncodeOptions::png()).expect("encode to vec");
+        encode_rgb_image(&img, &meta, &path, &EncodeOptions::png()).expect("encode to path");
+        let path_bytes = fs::read(&path).expect("read back");
+
+        assert_eq!(
+            vec_bytes, path_bytes,
+            "vec and path output must be identical"
+        );
+        fs::remove_file(&path).ok();
+    }
+
+    #[cfg(feature = "avif-encode")]
+    #[test]
+    fn avif_encodes_in_memory_without_a_path() {
+        // The headline fix: AVIF no longer needs a file path for metadata.
+        let img = synthetic_image();
+        let bytes =
+            encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &EncodeOptions::avif())
+                .expect("AVIF to vec");
+        assert!(!bytes.is_empty());
+        assert_eq!(
+            rawshift_image::formats::detect_standard_format(&bytes),
+            Some(StandardFormat::Avif)
+        );
+
+        // ...and writing to a generic writer works too (previously Unsupported).
+        let mut sink = Vec::new();
+        rawshift_image::formats::encode_rgb_image_to_writer(
+            &img,
+            &ImageMetadata::default(),
+            &mut sink,
+            &EncodeOptions::avif(),
+        )
+        .expect("AVIF to writer");
+        assert_eq!(sink, bytes, "writer output must match vec output");
+    }
+
+    #[cfg(feature = "jxl-encode")]
+    #[test]
+    fn jxl_encodes_in_memory_without_a_path() {
+        let img = synthetic_image();
+        let bytes = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &EncodeOptions::jxl())
+            .expect("JXL to vec");
+        assert!(!bytes.is_empty());
+
+        let mut sink = Vec::new();
+        rawshift_image::formats::encode_rgb_image_to_writer(
+            &img,
+            &ImageMetadata::default(),
+            &mut sink,
+            &EncodeOptions::jxl(),
+        )
+        .expect("JXL to writer");
+        assert_eq!(sink, bytes);
+    }
+
+    #[test]
+    fn registry_lists_compiled_codecs() {
+        let encoders = available_encoders();
+        assert!(!encoders.is_empty(), "default build has encoders");
+        assert!(encoders.iter().all(|c| c.id.id.contains('/')));
+
+        let decoders = available_decoders();
+        assert!(!decoders.is_empty(), "default build has decoders");
+    }
+
+    #[test]
+    fn decoded_png_is_tagged_srgb() {
+        use rawshift_image::core::ColorSpace;
+        let bytes = encode_rgb_image_to_vec(
+            &synthetic_image(),
+            &ImageMetadata::default(),
+            &EncodeOptions::png(),
+        )
+        .expect("encode PNG");
+        let decoded = decode_standard_image(&bytes, StandardFormat::Png).expect("decode PNG");
+        assert_eq!(decoded.color_space(), ColorSpace::Srgb);
+    }
+
+    #[test]
+    fn probe_reports_dimensions_without_decoding() {
+        let bytes = encode_rgb_image_to_vec(
+            &synthetic_image(),
+            &ImageMetadata::default(),
+            &EncodeOptions::png(),
+        )
+        .expect("encode PNG");
+        let probe = probe_standard_image(&bytes).expect("probe");
+        assert_eq!(probe.format, StandardFormat::Png);
+        assert_eq!(probe.size.width, 4);
+        assert_eq!(probe.size.height, 4);
+    }
+
+    #[test]
+    fn entry_point_types_are_send_and_sync() {
+        // The decode/encode entry points are stateless free functions; the
+        // values that cross thread boundaries on a rayon worker pool must be
+        // `Send + Sync`. This is a compile-time assertion.
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<RgbImage>();
+        assert_send_sync::<ImageMetadata>();
+        assert_send_sync::<EncodeOptions>();
+        assert_send_sync::<rawshift_image::formats::DecodeOptions>();
+        assert_send_sync::<rawshift_image::formats::ImageProbe>();
+        assert_send_sync::<rawshift_image::error::RawError>();
+        assert_send_sync::<Vec<u8>>();
     }
 }

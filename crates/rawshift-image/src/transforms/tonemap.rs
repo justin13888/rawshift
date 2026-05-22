@@ -90,7 +90,7 @@ fn hable(x: f32) -> f32 {
 ///
 /// Converts a linear-light value in [0, 1] to an sRGB-encoded value in [0, 1].
 #[inline(always)]
-fn srgb_encode(linear: f32) -> f32 {
+pub(crate) fn srgb_encode(linear: f32) -> f32 {
     if linear <= 0.003_130_8 {
         linear * 12.92
     } else {

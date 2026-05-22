@@ -63,21 +63,20 @@ pub fn append_xmp_to_jpeg(xmp_bytes: &[u8], jpeg_data: Vec<u8>) -> Result<Vec<u8
     Ok(output.into_inner())
 }
 
-/// Append XMP metadata to an AVIF file on disk.
+/// Append XMP metadata to an in-memory AVIF byte stream.
 ///
 /// A top-level `xml ` ISOBMFF box containing the XMP packet is appended to the
-/// end of the file.  Since the new box follows all existing boxes (including
+/// end of the data.  Since the new box follows all existing boxes (including
 /// `mdat`), no `iloc` extent offsets need to be patched.
 #[cfg_attr(not(feature = "avif"), allow(dead_code))]
-pub fn append_xmp_to_avif_file(path: &std::path::Path, xmp_bytes: &[u8]) -> Result<(), XmpError> {
-    let mut data = std::fs::read(path)?;
+pub fn append_xmp_to_avif(xmp_bytes: &[u8], avif_data: Vec<u8>) -> Result<Vec<u8>, XmpError> {
+    let mut data = avif_data;
     let box_size = (8 + xmp_bytes.len()) as u32;
     data.reserve(box_size as usize);
     data.extend_from_slice(&box_size.to_be_bytes());
     data.extend_from_slice(b"xml ");
     data.extend_from_slice(xmp_bytes);
-    std::fs::write(path, data)?;
-    Ok(())
+    Ok(data)
 }
 
 /// Append XMP metadata to JXL container data.
@@ -194,5 +193,20 @@ mod tests {
         let bad = b"not a jxl file at all!!";
         let result = append_xmp_to_jxl(b"xmp", bad.to_vec());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_append_xmp_to_avif() {
+        // `append_xmp_to_avif` only appends a trailing `xml ` box, so the
+        // leading bytes need not form a real container for this unit test.
+        let avif = vec![0u8; 32];
+        let xmp = b"<x:xmpmeta/>";
+        let result = append_xmp_to_avif(xmp, avif).expect("AVIF XMP embed should succeed");
+
+        let box_size = (8 + xmp.len()) as u32;
+        assert_eq!(result.len(), 32 + box_size as usize);
+        assert_eq!(&result[32..36], &box_size.to_be_bytes());
+        assert_eq!(&result[36..40], b"xml ");
+        assert_eq!(&result[40..], xmp);
     }
 }

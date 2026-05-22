@@ -48,8 +48,8 @@ pub use black_level::apply_black_level;
 pub use ca_correction::apply_ca_correction;
 pub use color::{
     ColorSpaceTransform, ColorTemperature, apply_color_matrix, apply_white_balance,
-    apply_white_balance_raw, compute_camera_to_srgb, estimate_cct_from_as_shot_neutral,
-    interpolate_color_matrix,
+    apply_white_balance_raw, compute_camera_to_srgb, convert_to_srgb,
+    estimate_cct_from_as_shot_neutral, interpolate_color_matrix,
 };
 pub use denoise::{apply_bilateral_filter, apply_gaussian_blur};
 pub use lens_correction::{apply_warp_rectilinear, apply_warp_rectilinear_tangential};
