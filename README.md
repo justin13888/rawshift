@@ -18,7 +18,13 @@ Image processing is messy and no single library could do it all (e.g., accurate 
 
 ## Format Support
 
-Here is the list of formats that are being worked on in order of priority:
+Rawshift targets both still image and video formats. Image decoding is the
+current focus; video support is planned but not yet implemented (see
+[Video](#video)).
+
+### Images
+
+Here is the list of image formats that are being worked on in order of priority:
 
 - Sony ARW (all variations at least up to v5.0.1)
 - Adobe DNG (up to v1.7, including what is necessary for Apple ProRAW)
@@ -53,6 +59,20 @@ Here is the list of formats that are being worked on in order of priority:
 Note on encoding support: For formats that we do not support encoding, you may still take the decoded pixel data and metadata, and encode it with your own encoding logic.
 
 Note on implementations: the decoder/encoder library named for each compressed format above is that format's **default implementation** — the one selected by its direction feature flag (e.g. `jpeg-decode`). A format may gain alternative implementations over time; see [Feature Flags](#feature-flags) for how implementations are named and selected.
+
+### Video
+
+Video support is **planned and not yet implemented** — no video code ships today, and there are no video feature flags. The formats below are on the roadmap, prioritised by the cameras in our [official supported device list](#official-supported-device-list):
+
+| Format / Codec       | Container       | Status  | Notes                                          |
+| -------------------- | --------------- | ------- | ---------------------------------------------- |
+| XAVC HS (H.265/HEVC) | MP4             | Planned | Sony mirrorless video.                         |
+| XAVC S (H.264/AVC)   | MP4             | Planned | Sony mirrorless video.                         |
+| Apple ProRes         | QuickTime (MOV) | Planned | iPhone Pro and professional editing workflows. |
+| HEVC (H.265)         | QuickTime (MOV) | Planned | Default iPhone video.                          |
+| H.264 (AVC)          | QuickTime (MOV) | Planned | Legacy and compatibility video.                |
+
+Initial work will focus on container parsing and metadata extraction, reusing the in-repo ISOBMFF parser already used for Canon CR3 (both MP4 and QuickTime are ISOBMFF-based). Codec-level decoding is a later milestone.
 
 ## Feature Flags
 
@@ -111,13 +131,15 @@ alongside it.
 
 > Compatibility is verified against the **default decoder implementation** for each format (the first/named library for that format in the Format Support table). Non-default implementations selected via implementation feature flags are not covered by this list.
 
-| Device                 | Format(s)       | Notes |
-| ---------------------- | --------------- | ----- |
-| Sony A7RV (ILCE-7RM5)  | ARW             |       |
-| Sony A7IV (ILCE-7M4)   | ARW             |       |
-| Sony a6700 (ILCE-6700) | ARW             |       |
-| iPhone 13 Pro (Max)    | DNG, HEIC, JPEG |       |
-| iPhone 16 Pro (Max)    | DNG, HEIC, JXL  |       |
+> The **Image Formats** column lists formats with verified decode support. The **Video Formats** column lists formats produced by the device that are on the [video roadmap](#video) — these are not yet implemented or verified.
+
+| Device                 | Image Formats   | Video Formats         | Notes |
+| ---------------------- | --------------- | --------------------- | ----- |
+| Sony A7RV (ILCE-7RM5)  | ARW, JPEG, HEIC | XAVC HS, XAVC S       |       |
+| Sony A7IV (ILCE-7M4)   | ARW, JPEG, HEIC | XAVC HS, XAVC S       |       |
+| Sony a6700 (ILCE-6700) | ARW, JPEG, HEIC | XAVC HS, XAVC S       |       |
+| iPhone 13 Pro (Max)    | DNG, HEIC, JPEG | HEVC, H.264, ProRes   |       |
+| iPhone 16 Pro (Max)    | DNG, HEIC, JXL  | HEVC, H.264, ProRes   |       |
 
 ## MSRV
 
