@@ -5,15 +5,10 @@
 //! Extend as new formats reveal additional fields.
 
 /// Unsigned rational (numerator, denominator).
-#[cfg(feature = "tiff-parser")]
-pub use crate::tiff::Rational as URational;
-
-/// Signed rational (numerator, denominator).
-#[cfg(feature = "tiff-parser")]
-pub use crate::tiff::SRational;
-
-/// Unsigned rational (numerator, denominator) — standalone definition when tiff-parser is not active.
-#[cfg(not(feature = "tiff-parser"))]
+///
+/// The format-agnostic rational used throughout the metadata model. TIFF-based
+/// decoders carry their own wire-level `tiff::Rational` and convert into this
+/// type at the metadata boundary via `From<tiff::Rational>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct URational {
@@ -23,7 +18,6 @@ pub struct URational {
     pub denominator: u32,
 }
 
-#[cfg(not(feature = "tiff-parser"))]
 impl URational {
     /// Create a new URational.
     pub fn new(numerator: u32, denominator: u32) -> Self {
@@ -42,8 +36,9 @@ impl URational {
     }
 }
 
-/// Signed rational (numerator, denominator) — standalone definition when tiff-parser is not active.
-#[cfg(not(feature = "tiff-parser"))]
+/// Signed rational (numerator, denominator).
+///
+/// The format-agnostic signed rational used throughout the metadata model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SRational {
@@ -53,7 +48,6 @@ pub struct SRational {
     pub denominator: i32,
 }
 
-#[cfg(not(feature = "tiff-parser"))]
 impl SRational {
     /// Create a new SRational.
     pub fn new(numerator: i32, denominator: i32) -> Self {

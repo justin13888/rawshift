@@ -1756,6 +1756,7 @@ dependencies = [
  "libwebp-sys",
  "little_exif",
  "ravif",
+ "rawshift-core",
  "rayon",
  "resvg",
  "serde",
@@ -1770,6 +1771,14 @@ dependencies = [
  "zune-jpeg 0.5.12",
  "zune-jpegxl",
  "zune-png",
+]
+
+[[package]]
+name = "rawshift-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

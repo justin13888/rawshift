@@ -19,6 +19,7 @@ features = ["full"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+rawshift-core  = { workspace = true }
 binrw          = { version = "0.15",   optional = true }
 libheif-rs     = { version = "2.7",    optional = true }
 libwebp-sys    = { version = "0.14",   optional = true }
@@ -141,7 +142,7 @@ svg-decode-resvg     = ["svg-decode", "dep:resvg"]
 # ── Tier 5: infrastructure / linking features ─────────────────────────────────
 # Internal TIFF structure parser (used by TIFF-based RAW formats) + public API.
 tiff-parser   = ["dep:binrw"]
-serde         = ["dep:serde"]
+serde         = ["dep:serde", "rawshift-core/serde"]
 # HEIC/HEIF linking mode. `heic` links the system libheif (resolved by
 # pkg-config); `heic-vendored` builds libheif from source via cmake and links
 # it statically (needs a C/C++ toolchain + cmake). Enable exactly one.

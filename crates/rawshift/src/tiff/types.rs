@@ -253,6 +253,22 @@ impl fmt::Display for SRational {
     }
 }
 
+// ── Conversions to the format-agnostic metadata rationals ────────────────────
+// The wire-level TIFF rationals carry binrw derives and cannot live in
+// `rawshift-core`; these `From` impls bridge them to the core metadata model.
+
+impl From<Rational> for rawshift_core::metadata::URational {
+    fn from(r: Rational) -> Self {
+        Self::new(r.numerator, r.denominator)
+    }
+}
+
+impl From<SRational> for rawshift_core::metadata::SRational {
+    fn from(r: SRational) -> Self {
+        Self::new(r.numerator, r.denominator)
+    }
+}
+
 /// Container for parsed TIFF tag values.
 ///
 /// This enum holds the actual parsed data for a tag value,
