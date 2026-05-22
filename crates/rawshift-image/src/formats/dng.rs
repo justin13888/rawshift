@@ -1548,6 +1548,9 @@ mod tests {
         assert_eq!(raw_image.data, pixel_data);
     }
 
+    // TODO: get rid of all `skip_if_no_test_data()` once fixtures are properly configured even in
+    // CI
+
     #[test]
     fn test_dng_parse_iphone() {
         let path = test_data_path("Apple/iPhone_17_Pro_Max/IMG_1347.DNG");
