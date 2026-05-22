@@ -1,0 +1,14 @@
+[package]
+name = "rawshift-video"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Video format support for rawshift (not yet implemented)"
+documentation = "https://docs.rs/rawshift-video"
+keywords = ["video", "raw", "metadata"]
+categories = ["multimedia::video"]
+
+[dependencies]
