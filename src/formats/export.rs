@@ -23,7 +23,14 @@ impl Default for MetadataEmbedOptions {
     }
 }
 
-/// Options for encoding the output image.
+/// Selects which encoder implementation produces the output image, and carries
+/// that implementation's configuration.
+///
+/// Each variant pairs an output format with one backend. Compressed formats may
+/// gain alternative encoder implementations over time; each such implementation
+/// gets its own variant and its own configuration struct, so there is never a
+/// generic, implementation-agnostic option set. `Dng` is the exception — DNG is
+/// a RAW format with a single in-repo encoder.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EncodeOptions {

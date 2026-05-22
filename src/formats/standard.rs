@@ -125,7 +125,7 @@ impl StandardFormat {
             StandardFormat::Tiff => true,
             #[cfg(feature = "avif-decode")]
             StandardFormat::Avif => true,
-            #[cfg(feature = "svg")]
+            #[cfg(feature = "svg-decode")]
             StandardFormat::Svg => true,
             #[cfg(feature = "heic-decode")]
             StandardFormat::Heic => true,
@@ -199,7 +199,7 @@ pub fn detect_standard_format(data: &[u8]) -> Option<StandardFormat> {
             Some(StandardFormat::Avif)
         }
         // HEIC/HEIF: ftyp box with heic/heis/hevc/hevx brand
-        #[cfg(feature = "heic")]
+        #[cfg(feature = "heic-decode")]
         d if d.len() >= 12
             && &d[4..8] == b"ftyp"
             && (&d[8..12] == b"heic"
@@ -321,8 +321,16 @@ fn decode_gif(data: &[u8]) -> RawResult<RgbImage> {
 // ── JPEG ─────────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "jpeg-decode")]
-fn decode_jpeg(data: &[u8]) -> RawResult<RgbImage> {
-    let opts = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
+fn decode_jpeg(data: &[u8], cfg: &ZuneJpegDecodeConfig) -> RawResult<RgbImage> {
+    let mut opts = DecoderOptions::default()
+        .jpeg_set_out_colorspace(ColorSpace::RGB)
+        .set_strict_mode(cfg.strict);
+    if let Some(w) = cfg.max_width {
+        opts = opts.set_max_width(w);
+    }
+    if let Some(h) = cfg.max_height {
+        opts = opts.set_max_height(h);
+    }
     let cursor = ZCursor::new(data);
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(cursor, opts);
 
@@ -352,10 +360,19 @@ fn decode_jpeg(data: &[u8]) -> RawResult<RgbImage> {
 // ── PNG ──────────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "png-decode")]
-fn decode_png(data: &[u8]) -> RawResult<RgbImage> {
+fn decode_png(data: &[u8], cfg: &ZunePngDecodeConfig) -> RawResult<RgbImage> {
     // Decode the PNG in its native color space (RGB, RGBA, Luma, LumaA, …)
     // and then convert to packed RGB u16 manually.
-    let opts = DecoderOptions::default().png_set_strip_to_8bit(false);
+    let mut opts = DecoderOptions::default()
+        .png_set_strip_to_8bit(false)
+        .set_strict_mode(cfg.strict)
+        .png_set_confirm_crc(cfg.confirm_crc);
+    if let Some(w) = cfg.max_width {
+        opts = opts.set_max_width(w);
+    }
+    if let Some(h) = cfg.max_height {
+        opts = opts.set_max_height(h);
+    }
     let cursor = ZCursor::new(data);
     let mut decoder = zune_png::PngDecoder::new_with_options(cursor, opts);
 
@@ -663,11 +680,14 @@ fn decode_heic(_data: &[u8]) -> RawResult<RgbImage> {
 
 // ── SVG ──────────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "svg")]
-fn decode_svg(data: &[u8]) -> RawResult<RgbImage> {
+#[cfg(feature = "svg-decode")]
+fn decode_svg(data: &[u8], cfg: &ResvgDecodeConfig) -> RawResult<RgbImage> {
     use resvg::{tiny_skia, usvg};
 
-    let options = usvg::Options::default();
+    let options = usvg::Options {
+        dpi: cfg.dpi,
+        ..usvg::Options::default()
+    };
     let tree = usvg::Tree::from_data(data, &options).map_err(|e| {
         RawError::Format(FormatError::ImageDecode {
             format: "SVG",
@@ -704,8 +724,8 @@ fn decode_svg(data: &[u8]) -> RawResult<RgbImage> {
     Ok(RgbImage::new(width, height, data_u16))
 }
 
-#[cfg(not(feature = "svg"))]
-fn decode_svg(_data: &[u8]) -> RawResult<RgbImage> {
+#[cfg(not(feature = "svg-decode"))]
+fn decode_svg(_data: &[u8], _cfg: &ResvgDecodeConfig) -> RawResult<RgbImage> {
     Err(RawError::Format(FormatError::ImageDecode {
         format: "SVG",
         message: "SVG support requires the 'svg' feature flag".to_string(),
@@ -725,13 +745,195 @@ fn decode_apv(_data: &[u8]) -> RawResult<RgbImage> {
     }))
 }
 
+// ── Decoder implementation selection ──────────────────────────────────────────
+
+/// Per-implementation configuration for the `zune-jpeg` JPEG decoder.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ZuneJpegDecodeConfig {
+    /// Reject images wider than this, in pixels. `None` keeps the decoder's
+    /// built-in limit.
+    pub max_width: Option<usize>,
+    /// Reject images taller than this, in pixels. `None` keeps the decoder's
+    /// built-in limit.
+    pub max_height: Option<usize>,
+    /// Reject streams that deviate from the JPEG specification instead of
+    /// attempting recovery. Default: `false`.
+    pub strict: bool,
+}
+
+/// Per-implementation configuration for the `zune-png` PNG decoder.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ZunePngDecodeConfig {
+    /// Reject images wider than this, in pixels. `None` keeps the decoder's
+    /// built-in limit.
+    pub max_width: Option<usize>,
+    /// Reject images taller than this, in pixels. `None` keeps the decoder's
+    /// built-in limit.
+    pub max_height: Option<usize>,
+    /// Verify per-chunk CRCs while decoding. Default: `false`.
+    pub confirm_crc: bool,
+    /// Reject streams that deviate from the PNG specification. Default: `false`.
+    pub strict: bool,
+}
+
+/// Per-implementation configuration for the `resvg` SVG renderer.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ResvgDecodeConfig {
+    /// Dots-per-inch used to resolve physical units (`mm`, `cm`, `in`) in the
+    /// SVG. Default: `96.0`.
+    pub dpi: f32,
+}
+
+impl Default for ResvgDecodeConfig {
+    fn default() -> Self {
+        Self { dpi: 96.0 }
+    }
+}
+
+/// Macro to define an implementation config type that currently exposes no
+/// tunable parameters. The type is a stable home for future backend-specific
+/// options — adding fields later is a non-breaking change.
+macro_rules! empty_decode_config {
+    ($(#[$m:meta])* $name:ident, $lib:literal) => {
+        #[doc = concat!("Per-implementation configuration for the `", $lib, "` decoder.")]
+        ///
+        /// This backend currently exposes no tunable parameters that affect the
+        /// decoded output; the type exists so backend-specific options can be
+        /// added without breaking the API.
+        $(#[$m])*
+        #[derive(Debug, Clone, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        pub struct $name {}
+    };
+}
+
+empty_decode_config!(LibwebpDecodeConfig, "libwebp");
+empty_decode_config!(JxlOxideDecodeConfig, "jxl-oxide");
+empty_decode_config!(GifDecodeConfig, "gif");
+empty_decode_config!(TiffDecodeConfig, "tiff");
+empty_decode_config!(ImageAvifDecodeConfig, "image (avif-native)");
+empty_decode_config!(LibheifDecodeConfig, "libheif");
+
+/// Selects which decoder implementation handles a standard image, and carries
+/// that implementation's configuration.
+///
+/// Each variant pairs a compressed format with one backend library. rawshift
+/// can be built with multiple implementations of the same format enabled (see
+/// the implementation feature flags in the crate documentation); this enum is
+/// how a caller pins exactly which one [`decode_standard_image_with`] uses.
+///
+/// Use [`DecodeOptions::default_for`] to obtain the default backend for a
+/// format. RAW formats are intentionally absent — they have a single in-repo
+/// implementation and are decoded through [`RawFile`](crate::formats::RawFile).
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum DecodeOptions {
+    /// JPEG via `zune-jpeg`.
+    #[cfg(feature = "jpeg-decode")]
+    JpegZune(ZuneJpegDecodeConfig),
+    /// PNG via `zune-png`.
+    #[cfg(feature = "png-decode")]
+    PngZune(ZunePngDecodeConfig),
+    /// WebP via `libwebp`.
+    #[cfg(feature = "webp-decode")]
+    WebpLibwebp(LibwebpDecodeConfig),
+    /// JPEG XL via `jxl-oxide`.
+    #[cfg(feature = "jxl-decode")]
+    JxlOxide(JxlOxideDecodeConfig),
+    /// GIF via the `gif` crate.
+    #[cfg(feature = "gif-decode")]
+    Gif(GifDecodeConfig),
+    /// TIFF via the `tiff` crate.
+    #[cfg(feature = "tiff-decode")]
+    Tiff(TiffDecodeConfig),
+    /// AVIF via `image` (`avif-native`).
+    #[cfg(feature = "avif-decode")]
+    AvifImage(ImageAvifDecodeConfig),
+    /// HEIC/HEIF via `libheif`.
+    #[cfg(feature = "heic-decode")]
+    HeicLibheif(LibheifDecodeConfig),
+    /// SVG via `resvg`.
+    #[cfg(feature = "svg-decode")]
+    SvgResvg(ResvgDecodeConfig),
+}
+
+impl DecodeOptions {
+    /// The standard format this backend decodes.
+    pub fn format(&self) -> StandardFormat {
+        match self {
+            #[cfg(feature = "jpeg-decode")]
+            DecodeOptions::JpegZune(_) => StandardFormat::Jpeg,
+            #[cfg(feature = "png-decode")]
+            DecodeOptions::PngZune(_) => StandardFormat::Png,
+            #[cfg(feature = "webp-decode")]
+            DecodeOptions::WebpLibwebp(_) => StandardFormat::WebP,
+            #[cfg(feature = "jxl-decode")]
+            DecodeOptions::JxlOxide(_) => StandardFormat::Jxl,
+            #[cfg(feature = "gif-decode")]
+            DecodeOptions::Gif(_) => StandardFormat::Gif,
+            #[cfg(feature = "tiff-decode")]
+            DecodeOptions::Tiff(_) => StandardFormat::Tiff,
+            #[cfg(feature = "avif-decode")]
+            DecodeOptions::AvifImage(_) => StandardFormat::Avif,
+            #[cfg(feature = "heic-decode")]
+            DecodeOptions::HeicLibheif(_) => StandardFormat::Heic,
+            #[cfg(feature = "svg-decode")]
+            DecodeOptions::SvgResvg(_) => StandardFormat::Svg,
+            // Unreachable: with no decode feature enabled `DecodeOptions` has
+            // no variants and no value of it can be constructed.
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
+        }
+    }
+
+    /// The default decoder backend for `format`, with default configuration.
+    ///
+    /// Returns `None` when no decoder for `format` is compiled in (the relevant
+    /// feature flag is disabled, or the format has no decoder — e.g. APV).
+    pub fn default_for(format: StandardFormat) -> Option<DecodeOptions> {
+        match format {
+            #[cfg(feature = "jpeg-decode")]
+            StandardFormat::Jpeg => Some(DecodeOptions::JpegZune(ZuneJpegDecodeConfig::default())),
+            #[cfg(feature = "png-decode")]
+            StandardFormat::Png => Some(DecodeOptions::PngZune(ZunePngDecodeConfig::default())),
+            #[cfg(feature = "webp-decode")]
+            StandardFormat::WebP => {
+                Some(DecodeOptions::WebpLibwebp(LibwebpDecodeConfig::default()))
+            }
+            #[cfg(feature = "jxl-decode")]
+            StandardFormat::Jxl => Some(DecodeOptions::JxlOxide(JxlOxideDecodeConfig::default())),
+            #[cfg(feature = "gif-decode")]
+            StandardFormat::Gif => Some(DecodeOptions::Gif(GifDecodeConfig::default())),
+            #[cfg(feature = "tiff-decode")]
+            StandardFormat::Tiff => Some(DecodeOptions::Tiff(TiffDecodeConfig::default())),
+            #[cfg(feature = "avif-decode")]
+            StandardFormat::Avif => {
+                Some(DecodeOptions::AvifImage(ImageAvifDecodeConfig::default()))
+            }
+            #[cfg(feature = "heic-decode")]
+            StandardFormat::Heic => {
+                Some(DecodeOptions::HeicLibheif(LibheifDecodeConfig::default()))
+            }
+            #[cfg(feature = "svg-decode")]
+            StandardFormat::Svg => Some(DecodeOptions::SvgResvg(ResvgDecodeConfig::default())),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
-/// Decode a standard (non-RAW) image to an [`RgbImage`].
+/// Decode a standard (non-RAW) image to an [`RgbImage`] using each format's
+/// default decoder implementation.
 ///
 /// The caller must supply the [`StandardFormat`] explicitly. Use
 /// [`detect_standard_format`] to infer it from magic bytes when the format is
-/// not otherwise known.
+/// not otherwise known. To pin a specific decoder implementation or pass
+/// implementation-specific configuration, use [`decode_standard_image_with`].
 ///
 /// The returned [`RgbImage`] contains 16-bit interleaved RGB data in row-major
 /// order. 8-bit source images are scaled to 16-bit by multiplying by 257.
@@ -744,9 +946,9 @@ pub fn decode_standard_image(data: &[u8], format: StandardFormat) -> RawResult<R
         #[cfg(feature = "gif-decode")]
         StandardFormat::Gif => decode_gif(data),
         #[cfg(feature = "jpeg-decode")]
-        StandardFormat::Jpeg => decode_jpeg(data),
+        StandardFormat::Jpeg => decode_jpeg(data, &ZuneJpegDecodeConfig::default()),
         #[cfg(feature = "png-decode")]
-        StandardFormat::Png => decode_png(data),
+        StandardFormat::Png => decode_png(data, &ZunePngDecodeConfig::default()),
         #[cfg(feature = "webp-decode")]
         StandardFormat::WebP => decode_webp(data),
         #[cfg(feature = "jxl-decode")]
@@ -755,13 +957,49 @@ pub fn decode_standard_image(data: &[u8], format: StandardFormat) -> RawResult<R
         StandardFormat::Tiff => decode_tiff(data),
         StandardFormat::Avif => decode_avif(data),
         StandardFormat::Heic => decode_heic(data),
-        StandardFormat::Svg => decode_svg(data),
+        StandardFormat::Svg => decode_svg(data, &ResvgDecodeConfig::default()),
         StandardFormat::Apv => decode_apv(data),
         #[allow(unreachable_patterns)]
         _ => Err(RawError::Unsupported(format!(
             "Decoding {:?} requires a feature flag that is not enabled.",
             format.name()
         ))),
+    }
+}
+
+/// Decode a standard (non-RAW) image with an explicitly selected decoder
+/// implementation.
+///
+/// Unlike [`decode_standard_image`], which always uses each format's default
+/// implementation, this lets the caller pin a specific backend library and
+/// pass that library's configuration via [`DecodeOptions`].
+///
+/// # Errors
+/// Returns a [`RawError`] if the selected backend fails to decode `data`.
+pub fn decode_standard_image_with(data: &[u8], options: &DecodeOptions) -> RawResult<RgbImage> {
+    match options {
+        #[cfg(feature = "jpeg-decode")]
+        DecodeOptions::JpegZune(cfg) => decode_jpeg(data, cfg),
+        #[cfg(feature = "png-decode")]
+        DecodeOptions::PngZune(cfg) => decode_png(data, cfg),
+        #[cfg(feature = "webp-decode")]
+        DecodeOptions::WebpLibwebp(_cfg) => decode_webp(data),
+        #[cfg(feature = "jxl-decode")]
+        DecodeOptions::JxlOxide(_cfg) => decode_jxl(data),
+        #[cfg(feature = "gif-decode")]
+        DecodeOptions::Gif(_cfg) => decode_gif(data),
+        #[cfg(feature = "tiff-decode")]
+        DecodeOptions::Tiff(_cfg) => decode_tiff(data),
+        #[cfg(feature = "avif-decode")]
+        DecodeOptions::AvifImage(_cfg) => decode_avif(data),
+        #[cfg(feature = "heic-decode")]
+        DecodeOptions::HeicLibheif(_cfg) => decode_heic(data),
+        #[cfg(feature = "svg-decode")]
+        DecodeOptions::SvgResvg(cfg) => decode_svg(data, cfg),
+        // Unreachable: with no decode feature enabled `DecodeOptions` has no
+        // variants and no value of it can be constructed.
+        #[allow(unreachable_patterns)]
+        _ => unreachable!(),
     }
 }
 
@@ -999,6 +1237,53 @@ mod tests {
         assert_eq!(decoded.data.len(), W * H * 3);
         // Each u8 value should have been scaled to u16
         assert_eq!(decoded.data[0], u8_to_u16(pixels_u8[0]));
+    }
+
+    // ── DecodeOptions / decode_standard_image_with ────────────────────────
+
+    #[test]
+    fn decode_options_default_for_apv_is_none() {
+        // APV has no decoder, so there is no default backend.
+        assert!(DecodeOptions::default_for(StandardFormat::Apv).is_none());
+    }
+
+    #[cfg(feature = "png-decode")]
+    #[test]
+    fn decode_options_default_for_roundtrips_format() {
+        let opts = DecodeOptions::default_for(StandardFormat::Png).expect("png decoder");
+        assert_eq!(opts.format(), StandardFormat::Png);
+        assert!(matches!(opts, DecodeOptions::PngZune(_)));
+    }
+
+    #[cfg(feature = "png-decode")]
+    #[test]
+    fn decode_standard_image_with_selects_png_backend() {
+        const W: usize = 4;
+        const H: usize = 4;
+        let pixels_u8: Vec<u8> = (0..(W * H * 3)).map(|i| (i * 13 % 256) as u8).collect();
+
+        let opts = zune_core::options::EncoderOptions::default()
+            .set_width(W)
+            .set_height(H)
+            .set_colorspace(ColorSpace::RGB);
+        let mut encoded = Vec::new();
+        let mut encoder = zune_png::PngEncoder::new(&pixels_u8, opts);
+        encoder.encode(&mut encoded).expect("PNG encode failed");
+
+        // Decode through the explicit-backend API with a non-default config.
+        let cfg = ZunePngDecodeConfig {
+            confirm_crc: true,
+            ..ZunePngDecodeConfig::default()
+        };
+        let via_with = decode_standard_image_with(&encoded, &DecodeOptions::PngZune(cfg))
+            .expect("decode_standard_image_with failed");
+        // The default-path API must produce an identical result.
+        let via_default =
+            decode_standard_image(&encoded, StandardFormat::Png).expect("PNG decode failed");
+
+        assert_eq!(via_with.width(), W as u32);
+        assert_eq!(via_with.height(), H as u32);
+        assert_eq!(via_with.data, via_default.data);
     }
 
     // ── detect + decode consistency ───────────────────────────────────────
@@ -1425,7 +1710,7 @@ mod tests {
 
     // ── HEIC detection and decode ─────────────────────────────────────────
 
-    #[cfg(feature = "heic")]
+    #[cfg(feature = "heic-decode")]
     #[test]
     fn detect_heic_heic_brand() {
         let mut magic = [0u8; 12];
@@ -1434,7 +1719,7 @@ mod tests {
         assert_eq!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
-    #[cfg(feature = "heic")]
+    #[cfg(feature = "heic-decode")]
     #[test]
     fn detect_heic_heis_brand() {
         let mut magic = [0u8; 12];
@@ -1443,7 +1728,7 @@ mod tests {
         assert_eq!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
-    #[cfg(feature = "heic")]
+    #[cfg(feature = "heic-decode")]
     #[test]
     fn detect_heic_hevc_brand() {
         let mut magic = [0u8; 12];
@@ -1452,7 +1737,7 @@ mod tests {
         assert_eq!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
-    #[cfg(feature = "heic")]
+    #[cfg(feature = "heic-decode")]
     #[test]
     fn detect_heic_hevx_brand() {
         let mut magic = [0u8; 12];
@@ -1470,7 +1755,7 @@ mod tests {
         assert_ne!(detect_standard_format(&magic), Some(StandardFormat::Heic));
     }
 
-    #[cfg(feature = "heic")]
+    #[cfg(feature = "heic-decode")]
     #[test]
     fn heic_decode_returns_error() {
         let mut magic = [0u8; 12];
@@ -1545,7 +1830,7 @@ mod tests {
     #[test]
     fn svg_decode_returns_error_without_feature() {
         // Without the 'svg' feature, decode should return an error.
-        #[cfg(not(feature = "svg"))]
+        #[cfg(not(feature = "svg-decode"))]
         {
             let data = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"></svg>";
             let result = decode_standard_image(data, StandardFormat::Svg);
@@ -1559,14 +1844,14 @@ mod tests {
             ));
         }
         // With the svg feature enabled, the test is skipped here (covered by feature-gated tests).
-        #[cfg(feature = "svg")]
+        #[cfg(feature = "svg-decode")]
         {
             // Just verify the variant exists and the name is correct.
             assert_eq!(StandardFormat::Svg.name(), "SVG");
         }
     }
 
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "svg-decode")]
     #[test]
     fn svg_decode_simple_rect() {
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">

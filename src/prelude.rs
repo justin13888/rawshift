@@ -52,8 +52,11 @@ pub use crate::formats::export::{
     EncodeOptions, JpegOptions, MetadataEmbedOptions, PngOptions, WebPOptions,
 };
 pub use crate::formats::{
-    StandardFormat, decode_standard_image, detect_standard_format, encode_rgb_image,
-    encode_rgb_image_to_writer, read_standard_image_metadata,
+    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, JxlOxideDecodeConfig,
+    LibheifDecodeConfig, LibwebpDecodeConfig, ResvgDecodeConfig, StandardFormat, TiffDecodeConfig,
+    ZuneJpegDecodeConfig, ZunePngDecodeConfig, decode_standard_image, decode_standard_image_with,
+    detect_standard_format, encode_rgb_image, encode_rgb_image_to_writer,
+    read_standard_image_metadata,
 };
 
 #[cfg(any_raw)]

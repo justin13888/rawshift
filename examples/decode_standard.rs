@@ -8,7 +8,9 @@
 //!   cargo run --example decode_standard -- <input.png> --save-raw output.raw
 
 use clap::Parser;
-use rawshift::formats::{decode_standard_image, detect_standard_format};
+use rawshift::formats::{
+    DecodeOptions, decode_standard_image, decode_standard_image_with, detect_standard_format,
+};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -24,10 +26,20 @@ struct Args {
     /// Optional: save decoded raw pixel data (interleaved RGB u8) to this path
     #[arg(long)]
     save_raw: Option<PathBuf>,
+
+    /// Decode through the explicit-backend API (`decode_standard_image_with`)
+    /// using the default implementation for the detected format, instead of
+    /// the convenience `decode_standard_image` entry point.
+    #[arg(long)]
+    explicit_backend: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Args { input, save_raw } = Args::parse();
+    let Args {
+        input,
+        save_raw,
+        explicit_backend,
+    } = Args::parse();
 
     let data = std::fs::read(&input)?;
 
@@ -44,8 +56,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("Detected format: {}", format);
 
-    // Decode to RGB
-    let image = decode_standard_image(&data, format)?;
+    // Decode to RGB. With --explicit-backend, pin the decoder implementation
+    // explicitly via DecodeOptions (here: each format's default backend).
+    let image = if explicit_backend {
+        let backend = DecodeOptions::default_for(format)
+            .ok_or_else(|| format!("no decoder backend compiled in for {format}"))?;
+        println!("Backend: {backend:?}");
+        decode_standard_image_with(&data, &backend)?
+    } else {
+        decode_standard_image(&data, format)?
+    };
     println!(
         "Dimensions: {}x{} ({} pixels)",
         image.width(),

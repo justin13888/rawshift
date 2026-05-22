@@ -31,7 +31,10 @@ pub use encode::{encode_rgb_image, encode_rgb_image_to_writer};
 #[cfg(feature = "heic-decode")]
 pub use heic::{HeicAuxImage, HeicAuxKind, HeicFile};
 pub use standard::{
-    StandardFormat, decode_standard_image, detect_standard_format, read_standard_image_metadata,
+    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, JxlOxideDecodeConfig,
+    LibheifDecodeConfig, LibwebpDecodeConfig, ResvgDecodeConfig, StandardFormat, TiffDecodeConfig,
+    ZuneJpegDecodeConfig, ZunePngDecodeConfig, decode_standard_image, decode_standard_image_with,
+    detect_standard_format, read_standard_image_metadata,
 };
 
 #[cfg(feature = "tiff-parser")]

@@ -48,21 +48,26 @@
 //! 6. Tone mapping / gamma
 //!
 //! ## Feature Flags
-//! - `serde`: Enable serialization for metadata types
-//! - `jpeg`, `png`, `webp`: Standard format codec pairs (decode + encode)
-//! - `jxl-decode`: JXL decoding; `jxl-encode`: JXL encoding (requires `jxl-decode`)
-//! - `gif-decode`, `tiff-decode`: GIF/TIFF decoding (no encode support)
-//! - `avif-decode`, `avif-encode`: AVIF decode/encode; `avif` enables both
-//! - `heic`: HEIC/HEIF decoding via system libheif; `heic-vendored` builds
-//!   libheif from source and links it statically
-//! - `svg`: SVG decoding (requires `resvg`)
-//! - `tiff-parser`: Internal TIFF structure parser + public `TiffParser` API
-//! - `arw`, `cr2`, `cr3`, `crw`, `nef`, `raf`: RAW format decode (alias for `{format}-decode`)
-//! - `dng`: DNG decode + encode; `dng-decode`, `dng-encode` for individual control
-//! - `raw-stabilizing`: RAW formats with test fixtures (ARW, DNG)
-//! - `raw-incomplete`: RAW formats missing fixtures or pixel decode (CR2, CR3, CRW, NEF, RAF)
-//! - `experimental`: All RAW formats (raw-stabilizing + raw-incomplete)
-//! - `full`: All features enabled
+//!
+//! Cargo features are organised in five tiers, high-level to low-level. Each
+//! tier is defined in terms of the tier below; only tier-4 features (and RAW
+//! tier-3 features) pull in an external crate.
+//!
+//! 1. **Bundles** — `default`, `full`, `experimental`, `raw-stabilizing`,
+//!    `raw-incomplete`.
+//! 2. **Formats** — `jpeg`, `png`, `webp`, `jxl`, `avif`, `dng`, `gif`, `tiff`,
+//!    `heic`, `svg`, `arw`, `cr2`, `cr3`, `crw`, `nef`, `raf` (decode + encode
+//!    for that format).
+//! 3. **Directions** — `jpeg-decode`, `jpeg-encode`, `arw-decode`, … For
+//!    compressed formats a direction feature aliases the **default**
+//!    implementation; RAW formats have a single in-repo implementation.
+//! 4. **Implementations** — compressed formats only, named
+//!    `format-direction-impl` (e.g. `jpeg-decode-zune`). Multiple may be enabled
+//!    at once; the active backend is chosen via [`formats::DecodeOptions`] and
+//!    [`formats::export::EncodeOptions`].
+//! 5. **Infrastructure** — `tiff-parser`, `serde`, `heic-vendored`.
+//!
+//! See the "Feature Flags" section of the README for the full hierarchy.
 
 pub(crate) mod codecs;
 pub mod core;
