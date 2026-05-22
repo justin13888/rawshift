@@ -46,7 +46,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
       - uses: Swatinem/rust-cache@v2
       - name: Fetch test fixtures
         run: bash scripts/fetch_test_fixtures.sh
@@ -61,7 +63,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
       - uses: Swatinem/rust-cache@v2
       # `rawshift-image/full` enables `avif` and `heic`, which link the system
       # dav1d (via image/avif-native -> dav1d-sys) and libheif libraries.
@@ -82,7 +86,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
       - uses: Swatinem/rust-cache@v2
       # The facade with only the `image` feature, and the image crate standalone.
       - run: cargo build -p rawshift --no-default-features --features image
@@ -93,7 +99,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p rawshift --no-default-features --features video
       # Assert the video-only build pulls in zero image crates — this is the
@@ -114,7 +122,9 @@ jobs:
     needs: [test-all-features]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
       - uses: Swatinem/rust-cache@v2
       - name: Fetch test fixtures
         run: bash scripts/fetch_test_fixtures.sh
@@ -132,13 +142,13 @@ jobs:
           path: coverage.json
 
   msrv:
-    name: MSRV (1.85)
+    name: MSRV (1.90)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.85"
+          toolchain: "1.90"
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace
 
