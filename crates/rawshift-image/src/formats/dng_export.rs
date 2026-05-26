@@ -4,7 +4,7 @@
 //! DNG 1.7 compliant files with complete metadata preservation.
 
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Seek, Write};
 use std::path::Path;
 
 use crate::core::image::RgbImage;
@@ -14,7 +14,7 @@ use crate::tiff::writer::{IfdEntry, TiffWriter};
 use crate::tiff::{ByteOrder, TiffTag};
 
 /// DNG export configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DngExportConfig {
     /// Software name to embed (defaults to "rawshift")
@@ -36,22 +36,23 @@ impl DngExportConfig {
     }
 }
 
-/// Export an RGB image as a demosaiced linear DNG.
+/// Export an RGB image as a demosaiced linear DNG into any seekable writer.
 ///
-/// The output file will be DNG 1.7 compliant with:
+/// The DNG container is written via [`TiffWriter`], which needs `Seek` to
+/// backfill the IFD0 offset; an in-memory [`std::io::Cursor`] satisfies this.
+///
+/// The output is DNG 1.7 compliant with:
 /// - PhotometricInterpretation = 2 (RGB)
 /// - 16-bit per channel
 /// - Embedded color matrices and white balance
 /// - Full EXIF metadata (if available)
-pub fn export_dng(
-    path: &Path,
+pub fn export_dng_to_writer<W: Write + Seek>(
+    writer: W,
     image: &RgbImage,
     metadata: &ImageMetadata,
     config: &DngExportConfig,
 ) -> RawResult<()> {
-    let file = File::create(path)?;
-    let buf_writer = BufWriter::new(file);
-    let mut writer = TiffWriter::new(buf_writer, ByteOrder::LittleEndian);
+    let mut writer = TiffWriter::new(writer, ByteOrder::LittleEndian);
 
     // Write TIFF header
     writer.write_header()?;
@@ -69,6 +70,19 @@ pub fn export_dng(
     writer.update_ifd0_offset(ifd_offset as u32)?;
 
     Ok(())
+}
+
+/// Export an RGB image as a demosaiced linear DNG file.
+///
+/// Thin wrapper over [`export_dng_to_writer`] that creates the file at `path`.
+pub fn export_dng(
+    path: &Path,
+    image: &RgbImage,
+    metadata: &ImageMetadata,
+    config: &DngExportConfig,
+) -> RawResult<()> {
+    let file = File::create(path)?;
+    export_dng_to_writer(BufWriter::new(file), image, metadata, config)
 }
 
 /// Build the IFD entries for a DNG file.

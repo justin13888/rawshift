@@ -23,18 +23,23 @@ pub(crate) mod heic;
 pub(crate) mod nef;
 #[cfg(feature = "raf-decode")]
 pub(crate) mod raf;
+pub mod registry;
 pub(crate) mod standard;
 
 #[cfg(feature = "dng-encode")]
 pub use dng_export::{DngExportConfig, export_dng};
-pub use encode::{encode_rgb_image, encode_rgb_image_to_writer};
+pub use encode::{encode_rgb_image, encode_rgb_image_to_vec, encode_rgb_image_to_writer};
 #[cfg(feature = "heic-decode")]
 pub use heic::{HeicAuxImage, HeicAuxKind, HeicFile};
+pub use registry::{available_decoders, available_encoders};
+#[cfg(feature = "jxl-decode")]
+pub use standard::decode_jxl_partial;
 pub use standard::{
-    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, JxlOxideDecodeConfig,
+    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, ImageProbe, JxlOxideDecodeConfig,
     LibheifDecodeConfig, LibwebpDecodeConfig, ResvgDecodeConfig, StandardFormat, TiffDecodeConfig,
     ZuneJpegDecodeConfig, ZunePngDecodeConfig, ZunePpmDecodeConfig, decode_standard_image,
-    decode_standard_image_with, detect_standard_format, read_standard_image_metadata,
+    decode_standard_image_with, detect_standard_format, probe_standard_image,
+    read_standard_image_metadata,
 };
 
 #[cfg(feature = "tiff-parser")]
@@ -466,6 +471,9 @@ impl<R: Read + Seek> RawFile<R> {
             tracing::trace!("Applying orientation transform: {}", raw_orientation);
             crate::transforms::orientation::apply_orientation(&mut rgb_image, raw_orientation);
         }
+
+        // The pipeline emits display-referred sRGB after tone reproduction.
+        rgb_image.set_color_space(crate::core::ColorSpace::Srgb);
 
         Ok(rgb_image)
     }

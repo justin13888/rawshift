@@ -8,7 +8,7 @@
 //! provides the [`ColorSpaceTransform`] struct for bundled pipeline steps.
 
 use crate::core::image::RgbImage;
-use crate::error::RawResult;
+use crate::error::{RawError, RawResult};
 
 // Re-export processing primitives as canonical transform entry points.
 pub use crate::processing::color::{
@@ -184,6 +184,73 @@ pub fn estimate_cct_from_as_shot_neutral(as_shot_neutral: [f64; 3]) -> ColorTemp
     let b = as_shot_neutral[2].max(1e-6);
     let rb = b / r;
     (3000.0 + 9000.0 * rb).clamp(2000.0, 10000.0) as f32
+}
+
+/// Convert an [`RgbImage`] into sRGB-encoded color space, in place.
+///
+/// Behaviour depends on the image's current [`ColorSpace`](crate::core::ColorSpace):
+/// - `Srgb` / `Unknown` — no-op (`Unknown` is assumed to be sRGB already).
+/// - `LinearSrgb` — applies the sRGB transfer function (OETF).
+/// - `DisplayP3` / `Rec2020` / `AdobeRgb` / `ProPhotoRgb` — not yet supported;
+///   returns [`RawError::Unsupported`]. Wide-gamut conversion needs a
+///   color-management engine, which is planned follow-up work.
+///
+/// On success the image's color-space tag is updated to `Srgb`.
+pub fn convert_to_srgb(image: &mut RgbImage) -> RawResult<()> {
+    use crate::core::ColorSpace;
+    use crate::transforms::tonemap::srgb_encode;
+
+    match image.color_space() {
+        ColorSpace::Srgb | ColorSpace::Unknown => {}
+        ColorSpace::LinearSrgb => {
+            for sample in &mut image.data {
+                let linear = *sample as f32 / 65535.0;
+                *sample = (srgb_encode(linear) * 65535.0 + 0.5) as u16;
+            }
+        }
+        other => {
+            return Err(RawError::Unsupported(format!(
+                "conversion from {} to sRGB requires a color-management engine \
+                 (not yet implemented)",
+                other.name()
+            )));
+        }
+    }
+    image.set_color_space(ColorSpace::Srgb);
+    Ok(())
+}
+
+#[cfg(test)]
+mod convert_srgb_tests {
+    use super::*;
+    use crate::core::ColorSpace;
+
+    #[test]
+    fn linear_srgb_is_oetf_encoded() {
+        // The sRGB OETF lifts linear mid-grey above 0.5.
+        let mut img =
+            RgbImage::with_color_space(1, 1, vec![32768, 32768, 32768], ColorSpace::LinearSrgb);
+        convert_to_srgb(&mut img).expect("LinearSrgb conversion");
+        assert_eq!(img.color_space(), ColorSpace::Srgb);
+        assert!(img.data.iter().all(|&v| v > 32768));
+    }
+
+    #[test]
+    fn srgb_and_unknown_are_noops() {
+        for cs in [ColorSpace::Srgb, ColorSpace::Unknown] {
+            let original = vec![100u16, 200, 300];
+            let mut img = RgbImage::with_color_space(1, 1, original.clone(), cs);
+            convert_to_srgb(&mut img).expect("no-op conversion");
+            assert_eq!(img.data, original);
+            assert_eq!(img.color_space(), ColorSpace::Srgb);
+        }
+    }
+
+    #[test]
+    fn wide_gamut_is_rejected() {
+        let mut img = RgbImage::with_color_space(1, 1, vec![0, 0, 0], ColorSpace::DisplayP3);
+        assert!(convert_to_srgb(&mut img).is_err());
+    }
 }
 
 #[cfg(test)]

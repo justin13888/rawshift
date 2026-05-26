@@ -5,16 +5,17 @@
 //! # Contents
 //!
 //! - **`core`** — `RawImage`, `RgbImage`, `Size`, `Rect`, `Point`, `CfaPattern`,
-//!   `ImageMetadata`, the generic metadata model (`MetadataValue`, `MetadataKey`,
-//!   `MetadataNamespace`, `MetadataEntry`), and related structs.
+//!   `ImageMetadata`, `ColorSpace`, `BitDepth`, `CodecInfo`, the generic metadata
+//!   model (`MetadataValue`, `MetadataKey`, `MetadataNamespace`, `MetadataEntry`),
+//!   and related structs.
 //! - **`data`** — Camera color-calibration database (`CameraCalibration`,
 //!   `get_camera_calibration`, `all_cameras`).
 //! - **`error`** — `RawError`, `ParseError`, `FormatError`, `ProcessingError`,
 //!   `EncodeError`, and `RawResult`.
 //! - **`formats`** — `RawFile`, `RawFormat`, `StandardFormat`,
 //!   `decode_standard_image`, `detect_standard_format`,
-//!   `read_standard_image_metadata`, `DngExportConfig`,
-//!   `EncodeOptions`, `PngOptions`, `JpegOptions`, `WebPOptions`.
+//!   `read_standard_image_metadata`, `DngExportConfig`, `EncodeOptions`,
+//!   `CommonEncodeOptions`, `OutputFormat`, and the per-backend encode configs.
 //! - **`processing`** — `ProcessingOptions` and demosaicing types.
 //! - **`tiff`** — `TiffParser`, `TiffTag`, `TiffValue`, and related TIFF types.
 //! - **`transforms`** — `apply_black_level`, `apply_white_balance`,
@@ -22,7 +23,6 @@
 //!   `apply_tonemap`, `compute_camera_to_srgb`, `ColorSpaceTransform`, and more.
 
 // core
-pub use crate::core::IccProfile;
 pub use crate::core::image::{CfaPattern, RawImage, Rect, RgbImage, Size, XTransPattern};
 pub use crate::core::metadata::{
     CameraInfo, DateTimeInfo, DngCalibrationInfo, DngColorInfo, DngProfileInfo, ExifInfo, GpsInfo,
@@ -32,6 +32,7 @@ pub use crate::core::metadata::{
 pub use crate::core::pixel::{
     FromF32, Rgb, Rgb8, Rgb16, RgbF32, Rgba, Rgba8, Rgba16, RgbaF32, Sample,
 };
+pub use crate::core::{CodecDirection, CodecId, CodecInfo, ColorSpace, IccProfile};
 
 // data
 pub use crate::data::cameras::find_camera_calibration;
@@ -43,21 +44,24 @@ pub use crate::error::{
     EncodeError, FormatError, ParseError, ProcessingError, RawError, RawResult,
 };
 
-// formats
-#[cfg(feature = "avif-encode")]
-pub use crate::formats::export::AvifOptions;
-#[cfg(feature = "jxl-encode")]
-pub use crate::formats::export::JxlOptions;
+// formats — encode option system
 pub use crate::formats::export::{
-    EncodeOptions, JpegOptions, MetadataEmbedOptions, PngOptions, WebPOptions,
+    BitDepth, CommonEncodeOptions, EncodeOptions, JpegEncEncodeConfig, LibwebpEncodeConfig,
+    MetadataEmbedOptions, OutputFormat, RavifEncodeConfig, WebPMode, ZuneJxlEncodeConfig,
+    ZunePngEncodeConfig,
 };
+// formats — decoders, format detection, encode/decode entry points
 pub use crate::formats::{
-    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, JxlOxideDecodeConfig,
+    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, ImageProbe, JxlOxideDecodeConfig,
     LibheifDecodeConfig, LibwebpDecodeConfig, ResvgDecodeConfig, StandardFormat, TiffDecodeConfig,
-    ZuneJpegDecodeConfig, ZunePngDecodeConfig, decode_standard_image, decode_standard_image_with,
-    detect_standard_format, encode_rgb_image, encode_rgb_image_to_writer,
+    ZuneJpegDecodeConfig, ZunePngDecodeConfig, available_decoders, available_encoders,
+    decode_standard_image, decode_standard_image_with, detect_standard_format, encode_rgb_image,
+    encode_rgb_image_to_vec, encode_rgb_image_to_writer, probe_standard_image,
     read_standard_image_metadata,
 };
+
+#[cfg(feature = "jxl-decode")]
+pub use crate::formats::decode_jxl_partial;
 
 #[cfg(any_raw)]
 pub use crate::formats::{RawFile, RawFormat};
@@ -85,7 +89,7 @@ pub use crate::transforms::{
     apply_bilateral_filter, apply_black_level, apply_ca_correction, apply_color_matrix, apply_crop,
     apply_gains_rgb, apply_gaussian_blur, apply_matrix_rgb, apply_orientation,
     apply_tone_reproduction, apply_tonemap, apply_white_balance, apply_white_balance_raw,
-    compute_camera_to_srgb, correct_bad_pixels, detect_bad_pixels,
+    compute_camera_to_srgb, convert_to_srgb, correct_bad_pixels, detect_bad_pixels,
     estimate_cct_from_as_shot_neutral, flip_horizontal, flip_vertical, interpolate_color_matrix,
     rotate_90_ccw, rotate_90_cw, rotate_180, subtract_black_level_uniform,
 };

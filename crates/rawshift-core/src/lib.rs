@@ -8,10 +8,14 @@
 //! without either pulling in the other.
 #![forbid(unsafe_code)]
 
+pub mod codec;
+pub mod color;
 pub mod image;
 pub mod metadata;
 pub mod pixel;
 
+pub use codec::{CodecDirection, CodecId, CodecInfo, MetadataEmbedOptions};
+pub use color::{BitDepth, ColorSpace};
 pub use image::XTransPattern;
 pub use metadata::{
     ImageMetadata, MetadataEntry, MetadataExtractor, MetadataKey, MetadataNamespace, MetadataValue,

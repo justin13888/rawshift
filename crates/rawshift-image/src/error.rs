@@ -13,6 +13,7 @@
 use std::io;
 use thiserror::Error;
 
+use crate::core::BitDepth;
 #[cfg(feature = "tiff-parser")]
 use crate::tiff::TiffTag;
 
@@ -162,7 +163,11 @@ pub enum ProcessingError {
 }
 
 /// Output encoding errors.
+///
+/// `#[non_exhaustive]`: new encoder backends may introduce new error variants
+/// without that being a breaking change.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum EncodeError {
     /// Generic encoding/export error.
     #[error("Encoding error ({format}): {message}")]
@@ -171,6 +176,15 @@ pub enum EncodeError {
         format: &'static str,
         /// Error description
         message: String,
+    },
+
+    /// The selected encoder does not support the requested output bit depth.
+    #[error("{format} encoder does not support {requested:?} output")]
+    UnsupportedBitDepth {
+        /// Format name (e.g., "JPEG", "AVIF")
+        format: &'static str,
+        /// The bit depth that was requested but is not supported.
+        requested: BitDepth,
     },
 
     /// JPEG encoding error.

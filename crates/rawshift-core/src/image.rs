@@ -3,6 +3,8 @@
 //! This module defines the fundamental structures for representing
 //! image dimensions, coordinates, and raw image data.
 
+use crate::color::ColorSpace;
+
 /// Compute the maximum pixel value (white level) for a given bit depth, clamped to `u16`.
 ///
 /// Returns `u16::MAX` when `bit_depth >= 16`, and `(1 << bit_depth) - 1` otherwise.
@@ -433,16 +435,37 @@ pub struct RgbImage {
     pub data: Vec<u16>,
     baseline_exposure: Option<f32>,
     default_crop: Option<Rect>,
+    color_space: ColorSpace,
 }
 
 impl RgbImage {
-    /// Create a new RgbImage.
+    /// Create a new RgbImage with an unknown color space.
+    ///
+    /// Use [`with_color_space`](Self::with_color_space) or
+    /// [`set_color_space`](Self::set_color_space) when the space is known.
     pub fn new(width: u32, height: u32, data: Vec<u16>) -> Self {
         Self {
             size: Size::new(width, height),
             data,
             baseline_exposure: None,
             default_crop: None,
+            color_space: ColorSpace::Unknown,
+        }
+    }
+
+    /// Create a new RgbImage tagged with a known color space.
+    pub fn with_color_space(
+        width: u32,
+        height: u32,
+        data: Vec<u16>,
+        color_space: ColorSpace,
+    ) -> Self {
+        Self {
+            size: Size::new(width, height),
+            data,
+            baseline_exposure: None,
+            default_crop: None,
+            color_space,
         }
     }
 
@@ -473,11 +496,21 @@ impl RgbImage {
         self.default_crop
     }
 
+    /// The color space the RGB samples are in.
+    pub fn color_space(&self) -> ColorSpace {
+        self.color_space
+    }
+
     // ── Write accessors ──────────────────────────────────────────────────
 
     /// Set baseline exposure offset.
     pub fn set_baseline_exposure(&mut self, ev: Option<f32>) {
         self.baseline_exposure = ev;
+    }
+
+    /// Set the color space tag for the RGB samples.
+    pub fn set_color_space(&mut self, color_space: ColorSpace) {
+        self.color_space = color_space;
     }
 
     /// Set default crop rectangle.
