@@ -10,6 +10,7 @@ description = "Shared core types for rawshift (geometry, pixel samples, metadata
 documentation = "https://docs.rs/rawshift-core"
 keywords = ["raw", "image", "metadata", "pixel"]
 categories = ["multimedia::images"]
+readme = "README.md"
 
 [dependencies]
 serde = { workspace = true, optional = true }

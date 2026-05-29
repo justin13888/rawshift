@@ -10,6 +10,7 @@ description = "Video format support for rawshift (not yet implemented)"
 documentation = "https://docs.rs/rawshift-video"
 keywords = ["video", "raw", "metadata"]
 categories = ["multimedia::video"]
+readme = "README.md"
 
 [dependencies]
 
