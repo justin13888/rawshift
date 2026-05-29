@@ -10,7 +10,7 @@ description = "Still-image decoding, RAW processing, and encoding for rawshift"
 documentation = "https://docs.rs/rawshift-image"
 keywords = ["raw", "image", "dng", "arw", "photo"]
 categories = ["multimedia::images", "encoding", "parser-implementations"]
-readme = "../../README.md"
+readme = "README.md"
 
 [package.metadata.docs.rs]
 # `heic-vendored` is intentionally excluded: it builds libheif from source and
