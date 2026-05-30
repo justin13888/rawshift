@@ -1810,7 +1810,7 @@ dependencies = [
 
 [[package]]
 name = "rawshift"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rawshift-image",
  "rawshift-video",
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "rawshift-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1826,12 +1826,14 @@ dependencies = [
 
 [[package]]
 name = "rawshift-image"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "avif-serialize",
  "bindgen",
  "binrw",
+ "cc",
  "clap",
+ "cmake",
  "criterion",
  "eyre",
  "gif",
@@ -1865,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "rawshift-video"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "rayon"

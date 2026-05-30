@@ -47,9 +47,9 @@ pub use crate::error::{
 // formats — encode option system
 pub use crate::formats::export::{
     AvifRateControl, BitDepth, CommonEncodeOptions, EncodeOptions, JpegEncEncodeConfig,
-    LibaomEncodeConfig, LibjxlColorTransform, LibjxlEncodeConfig, LibjxlModular,
-    LibwebpEncodeConfig, MetadataEmbedOptions, OutputFormat, RavifEncodeConfig, WebPMode,
-    ZuneJxlEncodeConfig, ZunePngEncodeConfig,
+    JpegSubsampling, JpegliEncodeConfig, LibaomEncodeConfig, LibjxlColorTransform,
+    LibjxlEncodeConfig, LibjxlModular, LibwebpEncodeConfig, MetadataEmbedOptions, OutputFormat,
+    RavifEncodeConfig, WebPMode, ZuneJxlEncodeConfig, ZunePngEncodeConfig,
 };
 // formats — decoders, format detection, encode/decode entry points
 pub use crate::formats::{
