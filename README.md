@@ -12,13 +12,14 @@ Image processing is messy and no single library could do it all (e.g., accurate 
 - Correctness: While decoding implementations should remain flexible (e.g. to slightly non-conformant image), it should strictly conform to open standards and retain maximum metadata across formats.
 - Interoperability: This library compiles and is optimized for several standard desktop and mobile platforms. This is possible because the majority of the library is written in pure Rust and non-Rust dependencies are encapsulated with best practices.
 
-## Scope
+## Scope and Priorities
 
 rawshift is both a wrapper for image and video encoding/decoding needs, as well as implementations for various (often proprietary) RAW formats validated against specific camera bodies.
 
-A number of formats (e.g. HEIF, AV1) still depend on C/C++ libraries that are much more mature and battle-tested. The goal is to eventually support portable Rust equivalents that have the same features and performance characteristics of the benchmark implementations.
-
-While performance remains a core pillar in development, the primary priority remains to be feature-parity and output quality.
+The key priorities in order are:
+- **Porting and stabilizing capabilities into Rust:** A number of formats (e.g. HEIF, AV1) still depend on C/C++ libraries that are much more mature and battle-tested. It is unreasonable to port them in the short term and it is equally important to actively avoid implementations that are vibe-coded or that have dubious code licensing. The goal is to eventually support portable Rust equivalents that have the same features and performance characteristics of the benchmark implementations.
+- **Output Quality:** Porting to Rust expands our test coverage and allows us to contribute to dependent libraries for feature parity. We validate these improvements by testing decoding against our camera database and encoding against our user base.
+- **Performance:** Given mature and feature-complete libraries, we optimize the cost of common operations for various tasks end-to-end (e.g. format transcoding, metadata modification)
 
 <!-- TODO: Add in-repo benchmark comparing our current outputs to other libraries -->
 
