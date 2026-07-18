@@ -20,7 +20,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 rawshift-image = { workspace = true, optional = true }
-rawshift-video = { workspace = true, optional = true }
+# `rawshift-video` is deliberately absent: it is parked and unpublished for v1.
+# A facade that ships to crates.io cannot depend on an unpublished crate, and a
+# `video` feature that gates zero code is a promise the workspace cannot keep.
+# It is re-added when video has an implementation.
 
 # The `rawshift` facade exposes only coarse, high-level features. Cargo cannot
 # auto-forward a child crate's features, so per-format flags (jpeg, png, arw, …)
@@ -30,9 +33,8 @@ rawshift-video = { workspace = true, optional = true }
 default = ["image"]
 # Enable still-image support with `rawshift-image`'s own default formats.
 image = ["dep:rawshift-image"]
-# Enable video support with `rawshift-video`'s own defaults (not yet implemented).
-video = ["dep:rawshift-video"]
 # Serde derives for metadata/option types (no-op unless `image` is also on).
 serde = ["rawshift-image?/serde"]
-# Everything: every image format, all video formats, and serde.
-full = ["image", "rawshift-image/full", "video", "rawshift-video/full", "serde"]
+# Everything: every image format and serde. v1 is image-only — there is no
+# `video` feature until `rawshift-video` has an implementation.
+full = ["image", "rawshift-image/full", "serde"]

@@ -58,10 +58,13 @@ implementations — lives in the
 
 ### Video
 
-Video support is **planned and not yet implemented** — no video code ships
-today, and there are no video feature flags. The roadmap of formats
-(XAVC HS/S, Apple ProRes, HEVC, H.264) and the container-first implementation
-plan live in the [`rawshift-video` README](./crates/rawshift-video/README.md).
+Video is **parked for v1** — rawshift v1 ships image only. No video code ships
+today, `rawshift-video` is unpublished (`publish = false`), and it is not a
+dependency of the `rawshift` facade, so there is no `video` feature to enable.
+The roadmap of formats (XAVC HS/S, Apple ProRes, HEVC, H.264) and the
+container-first implementation plan live in the
+[`rawshift-video` README](./crates/rawshift-video/README.md); the crate is
+re-added to the publish set and the facade when it has an implementation.
 
 ## Crates
 
@@ -69,21 +72,22 @@ rawshift is a Cargo workspace:
 
 | Crate            | Purpose                                                                                                          |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
-| [`rawshift`](./crates/rawshift)                       | Facade. Re-exports the libraries below behind coarse `image` / `video` features. Most consumers depend on this.  |
+| [`rawshift`](./crates/rawshift)                       | Facade. Re-exports `rawshift-image` behind the coarse `image` feature. Most consumers depend on this.            |
 | [`rawshift-image`](./crates/rawshift-image/README.md) | Still-image decoding, RAW processing, and encoding. Carries the full per-format feature system.                  |
-| [`rawshift-video`](./crates/rawshift-video/README.md) | Video support — planned, not yet implemented (see [Video](#video)).                                              |
-| [`rawshift-core`](./crates/rawshift-core/README.md)   | Shared types — geometry, pixel samples, the metadata model — used by both libraries.                             |
+| [`rawshift-video`](./crates/rawshift-video/README.md) | Video support — parked and unpublished for v1 (see [Video](#video)).                                             |
+| [`rawshift-core`](./crates/rawshift-core/README.md)   | Shared types — geometry, codec descriptors, the metadata model. Charter is documented on the crate.              |
 
 ## Feature Flags
 
 ### Facade — `rawshift`
 
-The `rawshift` facade deliberately exposes only four coarse features:
+The `rawshift` facade deliberately exposes only three coarse features:
 
 - `image` *(default)* — still-image support (`rawshift-image` with its own default formats).
-- `video` — video support (`rawshift-video`).
 - `serde` — `Serialize`/`Deserialize` for metadata and option types.
-- `full` — every image format, all video formats, and `serde`.
+- `full` — every image format and `serde`.
+
+There is no `video` feature: video is parked for v1 (see [Video](#video)).
 
 The facade does **not** re-export per-format flags. Cargo cannot forward a child
 crate's features, so re-listing them would be duplicated, rot-prone state — and
