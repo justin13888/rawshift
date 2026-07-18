@@ -34,10 +34,8 @@ pub use encode::{encode_rgb_image, encode_rgb_image_to_vec, encode_rgb_image_to_
 #[cfg(feature = "heic-decode")]
 pub use heic::{HeicAuxImage, HeicAuxKind, HeicFile};
 pub use registry::{available_decoders, available_encoders};
-#[cfg(feature = "jxl-decode")]
-pub use standard::decode_jxl_partial;
 pub use standard::{
-    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, ImageProbe, JxlOxideDecodeConfig,
+    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, ImageProbe, JxlDecodeConfig,
     LibheifDecodeConfig, LibwebpDecodeConfig, ResvgDecodeConfig, StandardFormat, TiffDecodeConfig,
     ZuneJpegDecodeConfig, ZunePngDecodeConfig, ZunePpmDecodeConfig, decode_standard_image,
     decode_standard_image_with, detect_standard_format, probe_standard_image,

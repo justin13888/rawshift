@@ -3,7 +3,12 @@
 //! This module provides decoders for common non-RAW image formats that decode
 //! directly to RGB pixel data stored in an [`RgbImage`].
 
-#[cfg(any_standard_decode)]
+// `Cursor` is used only by the reader-based backends (gif / tiff / image).
+#[cfg(any(
+    feature = "gif-decode",
+    feature = "tiff-decode",
+    feature = "avif-decode"
+))]
 use std::io::Cursor;
 
 #[cfg(feature = "zune-runtime")]
@@ -258,8 +263,21 @@ pub fn detect_standard_format(data: &[u8]) -> Option<StandardFormat> {
 
 /// Scale an 8-bit sample to 16-bit by duplicating the byte in both halves.
 /// This is equivalent to `v * 257` and ensures that 255 maps to 65535.
+///
+/// Unused when only the JXL decoder is compiled in — gamut-jxl scales
+/// internally — hence the feature-precise `allow(dead_code)`.
 #[inline(always)]
-#[cfg_attr(not(any_standard_decode), allow(dead_code))]
+#[cfg_attr(
+    not(any(
+        feature = "gif-decode",
+        feature = "jpeg-decode",
+        feature = "png-decode",
+        feature = "webp-decode",
+        feature = "tiff-decode",
+        feature = "ppm-decode",
+    )),
+    allow(dead_code)
+)]
 fn u8_to_u16(v: u8) -> u16 {
     (v as u16) * 257
 }
@@ -486,153 +504,22 @@ fn decode_webp(data: &[u8]) -> RawResult<RgbImage> {
 
 #[cfg(feature = "jxl-decode")]
 fn decode_jxl(data: &[u8]) -> RawResult<RgbImage> {
-    use jxl_oxide::JxlImage;
+    use gamut_core::{DecodeImage, ImageBuf, Rgb16};
+    use gamut_jxl::JxlDecoder;
 
-    let image = JxlImage::builder().read(Cursor::new(data)).map_err(|e| {
+    // Requesting Rgb16 lets the decoder normalise every stream layout itself:
+    // grayscale expands to RGB, an alpha channel is dropped, and integer
+    // samples are scaled to full-range 16-bit (matching `u8_to_u16` for 8-bit
+    // sources). Animated and premultiplied-alpha streams are rejected upstream.
+    let decoded: ImageBuf<Rgb16> = JxlDecoder::new().decode_image(data).map_err(|e| {
         RawError::Format(FormatError::ImageDecode {
             format: "JXL",
             message: format!("{e}"),
         })
     })?;
 
-    let w = image.width();
-    let h = image.height();
-
-    if image.num_loaded_keyframes() == 0 {
-        return Err(RawError::Format(FormatError::ImageDecode {
-            format: "JXL",
-            message: "no keyframes decoded".to_string(),
-        }));
-    }
-
-    let render = image.render_frame(0).map_err(|e| {
-        RawError::Format(FormatError::ImageDecode {
-            format: "JXL",
-            message: format!("{e}"),
-        })
-    })?;
-
-    jxl_render_to_rgb(w, h, image.pixel_format(), render)
-}
-
-/// Convert a `jxl-oxide` [`Render`](jxl_oxide::Render) into a packed RGB
-/// [`RgbImage`]. Shared by [`decode_jxl`] and [`decode_jxl_partial`].
-#[cfg(feature = "jxl-decode")]
-fn jxl_render_to_rgb(
-    w: u32,
-    h: u32,
-    pixel_format: jxl_oxide::PixelFormat,
-    render: jxl_oxide::Render,
-) -> RawResult<RgbImage> {
-    use jxl_oxide::PixelFormat;
-
-    let total_pixels = (w as usize) * (h as usize);
-
-    // `stream_no_alpha` yields exactly the color channels.
-    let mut stream = render.stream_no_alpha();
-    let channels = stream.channels() as usize;
-
-    let mut samples_u16 = vec![0u16; total_pixels * channels];
-    stream.write_to_buffer(&mut samples_u16);
-
-    let data_u16: Vec<u16> = match pixel_format {
-        PixelFormat::Rgb => samples_u16,
-        PixelFormat::Gray => samples_u16.iter().flat_map(|&v| [v, v, v]).collect(),
-        PixelFormat::Rgba | PixelFormat::Graya => {
-            if pixel_format == PixelFormat::Graya {
-                samples_u16
-                    .chunks_exact(channels)
-                    .flat_map(|px| [px[0], px[0], px[0]])
-                    .collect()
-            } else {
-                samples_u16
-                    .chunks_exact(channels)
-                    .flat_map(|px| [px[0], px[1], px[2]])
-                    .collect()
-            }
-        }
-        _ => {
-            return Err(RawError::Format(FormatError::ImageDecode {
-                format: "JXL",
-                message: format!("unsupported pixel format {pixel_format:?}"),
-            }));
-        }
-    };
-
-    RgbImage::new(w, h, data_u16)
-}
-
-/// Decode a JPEG XL stream that may be **truncated**, returning the best
-/// available render.
-///
-/// Unlike [`decode_standard_image`], which errors on a stream with no fully
-/// loaded keyframe, this feeds bytes progressively and — if the stream ends
-/// mid-frame — renders the partially-decoded frame. The returned `bool` is
-/// `true` when a complete keyframe was decoded and `false` for a partial render.
-///
-/// The returned image is tagged [`ColorDescription::SRGB`](crate::core::ColorDescription).
-///
-/// # Errors
-/// Returns an error only when the stream is too short to even parse the image
-/// header, or the pixel format is unsupported.
-#[cfg(feature = "jxl-decode")]
-pub fn decode_jxl_partial(data: &[u8]) -> RawResult<(RgbImage, bool)> {
-    use jxl_oxide::{InitializeResult, JxlImage};
-
-    let jxl_err = |e| {
-        RawError::Format(FormatError::ImageDecode {
-            format: "JXL",
-            message: format!("{e}"),
-        })
-    };
-
-    // Phase 1: feed bytes until the image header initializes.
-    let mut uninit = JxlImage::builder().build_uninit();
-    let mut offset = 0usize;
-    let mut image = loop {
-        let consumed = if offset < data.len() {
-            uninit.feed_bytes(&data[offset..]).map_err(jxl_err)?
-        } else {
-            0
-        };
-        offset += consumed;
-        match uninit.try_init().map_err(jxl_err)? {
-            InitializeResult::Initialized(img) => break img,
-            InitializeResult::NeedMoreData(next) => {
-                uninit = next;
-                if consumed == 0 {
-                    return Err(RawError::Format(FormatError::ImageDecode {
-                        format: "JXL",
-                        message: "stream too short to read the image header".to_string(),
-                    }));
-                }
-            }
-        }
-    };
-
-    // Phase 2: feed the remainder into the initialized image. Feeding stops
-    // early — without error — when a truncated stream runs out of bytes.
-    while offset < data.len() {
-        let consumed = image.feed_bytes(&data[offset..]).map_err(jxl_err)?;
-        if consumed == 0 {
-            break;
-        }
-        offset += consumed;
-    }
-
-    let (w, h) = (image.width(), image.height());
-    let pixel_format = image.pixel_format();
-
-    // A fully-loaded keyframe renders completely; otherwise render whatever the
-    // truncated stream has produced so far.
-    let (render, complete) = if image.num_loaded_keyframes() > 0 {
-        (image.render_frame(0).map_err(jxl_err)?, true)
-    } else {
-        (image.render_loading_frame().map_err(jxl_err)?, false)
-    };
-
-    let rgb = jxl_render_to_rgb(w, h, pixel_format, render)?;
-    Ok((tag_srgb(rgb), complete))
+    let dims = decoded.dimensions();
+    RgbImage::new(dims.width, dims.height, decoded.into_samples())
 }
 
 // ── TIFF ─────────────────────────────────────────────────────────────────────
@@ -982,7 +869,7 @@ macro_rules! empty_decode_config {
 }
 
 empty_decode_config!(LibwebpDecodeConfig, "libwebp");
-empty_decode_config!(JxlOxideDecodeConfig, "jxl-oxide");
+empty_decode_config!(JxlDecodeConfig, "gamut-jxl");
 empty_decode_config!(GifDecodeConfig, "gif");
 empty_decode_config!(TiffDecodeConfig, "tiff");
 empty_decode_config!(ImageAvifDecodeConfig, "image (avif-native)");
@@ -1013,9 +900,9 @@ pub enum DecodeOptions {
     /// WebP via `libwebp`.
     #[cfg(feature = "webp-decode")]
     WebpLibwebp(LibwebpDecodeConfig),
-    /// JPEG XL via `jxl-oxide`.
+    /// JPEG XL via `gamut-jxl` (the pure-Rust jxl-rs decoder).
     #[cfg(feature = "jxl-decode")]
-    JxlOxide(JxlOxideDecodeConfig),
+    Jxl(JxlDecodeConfig),
     /// GIF via the `gif` crate.
     #[cfg(feature = "gif-decode")]
     Gif(GifDecodeConfig),
@@ -1047,7 +934,7 @@ impl DecodeOptions {
             #[cfg(feature = "webp-decode")]
             DecodeOptions::WebpLibwebp(_) => StandardFormat::WebP,
             #[cfg(feature = "jxl-decode")]
-            DecodeOptions::JxlOxide(_) => StandardFormat::Jxl,
+            DecodeOptions::Jxl(_) => StandardFormat::Jxl,
             #[cfg(feature = "gif-decode")]
             DecodeOptions::Gif(_) => StandardFormat::Gif,
             #[cfg(feature = "tiff-decode")]
@@ -1077,7 +964,7 @@ impl DecodeOptions {
             #[cfg(feature = "webp-decode")]
             DecodeOptions::WebpLibwebp(_) => CodecId::new("webp/libwebp"),
             #[cfg(feature = "jxl-decode")]
-            DecodeOptions::JxlOxide(_) => CodecId::new("jxl/jxl-oxide"),
+            DecodeOptions::Jxl(_) => CodecId::new("jxl/gamut"),
             #[cfg(feature = "gif-decode")]
             DecodeOptions::Gif(_) => CodecId::new("gif/gif"),
             #[cfg(feature = "tiff-decode")]
@@ -1110,7 +997,7 @@ impl DecodeOptions {
                 Some(DecodeOptions::WebpLibwebp(LibwebpDecodeConfig::default()))
             }
             #[cfg(feature = "jxl-decode")]
-            StandardFormat::Jxl => Some(DecodeOptions::JxlOxide(JxlOxideDecodeConfig::default())),
+            StandardFormat::Jxl => Some(DecodeOptions::Jxl(JxlDecodeConfig::default())),
             #[cfg(feature = "gif-decode")]
             StandardFormat::Gif => Some(DecodeOptions::Gif(GifDecodeConfig::default())),
             #[cfg(feature = "tiff-decode")]
@@ -1197,7 +1084,7 @@ pub fn decode_standard_image_with(data: &[u8], options: &DecodeOptions) -> RawRe
         #[cfg(feature = "webp-decode")]
         DecodeOptions::WebpLibwebp(_cfg) => decode_webp(data),
         #[cfg(feature = "jxl-decode")]
-        DecodeOptions::JxlOxide(_cfg) => decode_jxl(data),
+        DecodeOptions::Jxl(_cfg) => decode_jxl(data),
         #[cfg(feature = "gif-decode")]
         DecodeOptions::Gif(_cfg) => decode_gif(data),
         #[cfg(feature = "tiff-decode")]
@@ -1541,31 +1428,16 @@ fn probe_ppm(data: &[u8]) -> RawResult<(Dimensions, Option<u8>)> {
     }
 }
 
-/// JXL: parse just enough of the codestream to read the image header.
+/// JXL: parse just enough of the stream to read the image header
+/// (gamut-jxl's header-only `JxlDecoder::info` — no pixels are decoded).
 #[cfg(feature = "jxl-decode")]
 fn probe_jxl(data: &[u8]) -> RawResult<(Dimensions, Option<u8>)> {
-    use jxl_oxide::{InitializeResult, JxlImage};
-
-    let mut uninit = JxlImage::builder().build_uninit();
-    uninit
-        .feed_bytes(data)
+    let info = gamut_jxl::JxlDecoder::new()
+        .info(data)
         .map_err(|e| probe_err("JXL", e.to_string()))?;
-    match uninit
-        .try_init()
-        .map_err(|e| probe_err("JXL", e.to_string()))?
-    {
-        InitializeResult::Initialized(img) => Ok((
-            Dimensions {
-                width: img.width(),
-                height: img.height(),
-            },
-            None,
-        )),
-        InitializeResult::NeedMoreData(_) => Err(probe_err(
-            "JXL",
-            "stream too short to read the image header",
-        )),
-    }
+    // `bits_per_sample` is the stream's declared integer precision (or a float
+    // format's total width); anything over 255 bits cannot occur in practice.
+    Ok((info.dimensions, u8::try_from(info.bits_per_sample).ok()))
 }
 
 #[cfg(test)]

@@ -10,10 +10,9 @@
 //! (libjpeg-turbo, MozJPEG, SVT-AV1) can be added without a breaking
 //! change. Their configuration structs are already defined below — see
 //! [`MozjpegEncodeConfig`] and friends — so the API surface is stable ahead of
-//! the implementations. The libjxl ([`LibjxlEncodeConfig`]), jpegli
-//! ([`JpegliEncodeConfig`]), and libaom ([`LibaomEncodeConfig`]) backends are
-//! wired up behind the `jxl-encode-libjxl`, `jpeg-encode-jpegli`, and
-//! `avif-encode-libaom` features respectively.
+//! the implementations. The jpegli ([`JpegliEncodeConfig`]) and libaom
+//! ([`LibaomEncodeConfig`]) backends are wired up behind the
+//! `jpeg-encode-jpegli` and `avif-encode-libaom` features respectively.
 
 #[cfg(feature = "dng-encode")]
 use crate::formats::dng_export::DngEncodeConfig;
@@ -340,146 +339,52 @@ impl Default for LibaomEncodeConfig {
     }
 }
 
-/// Configuration for the `zune-jpegxl` JPEG XL encoder (`JxlSimpleEncoder`).
+/// Configuration for the `gamut-jxl` JPEG XL encoder (the reference libjxl,
+/// statically linked through `gamut-jxl-sys`).
+///
+/// Exposes exactly gamut-jxl's encoder options: the lossless/lossy mode with a
+/// Butteraugli distance, the `1..=10` effort dial, ISO BMFF container framing,
+/// and an optional coded-bit-depth override. Honours `BitDepth::Eight` and
+/// `BitDepth::Sixteen` output (true 16-bit — including mathematically lossless
+/// 16-bit round-trips). EXIF / XMP metadata is written by the encoder itself
+/// as container boxes, and an sRGB ICC profile (when
+/// [`MetadataEmbedOptions::embed_icc`] is set) is embedded in the codestream's
+/// colour metadata.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ZuneJxlEncodeConfig {
-    /// Encoder-agnostic options. This backend currently produces 8-bit JXL.
+pub struct JxlEncodeConfig {
+    /// Encoder-agnostic options (metadata embedding, bit depth).
     pub common: CommonEncodeOptions,
-    /// Quality, `0.0..=100.0` (`0.0` requests lossless). Default: `0.0`.
-    pub quality: f32,
-    /// Effort, `1..=9` (higher is slower). `JxlSimpleEncoder` may ignore this.
-    /// Default: `7`.
-    pub effort: u8,
-}
-
-impl Default for ZuneJxlEncodeConfig {
-    fn default() -> Self {
-        Self {
-            common: CommonEncodeOptions::default(),
-            quality: 0.0,
-            effort: 7,
-        }
-    }
-}
-
-/// Modular vs VarDCT mode for the [`libjxl`](LibjxlEncodeConfig) encoder
-/// (`JXL_ENC_FRAME_SETTING_MODULAR`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum LibjxlModular {
-    /// Let libjxl decide (VarDCT for lossy, modular for lossless). The default.
-    #[default]
-    Auto,
-    /// Force VarDCT — best for photographic, lossy content.
-    VarDct,
-    /// Force modular — best for lossless, non-photographic, or high-bit-depth content.
-    Modular,
-}
-
-/// Internal color transform for the [`libjxl`](LibjxlEncodeConfig) encoder
-/// (`JXL_ENC_FRAME_SETTING_COLOR_TRANSFORM`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum LibjxlColorTransform {
-    /// Let libjxl decide (XYB for lossy). The default.
-    #[default]
-    Auto,
-    /// XYB — the JPEG XL perceptual space; best lossy compression.
-    Xyb,
-    /// No transform — encode the RGB channels directly.
-    None,
-    /// YCbCr.
-    YCbCr,
-}
-
-/// Configuration for the **libjxl** JPEG XL encoder (the reference encoder).
-///
-/// Unlike the `zune-jpegxl` default ([`ZuneJxlEncodeConfig`]), libjxl honours
-/// 8- and 16-bit output, mathematically lossless encoding, and the full set of
-/// `JxlEncoderFrameSettingId` toggles. Requires the `jxl-encode-libjxl` feature.
-///
-/// Integer fields default to a `-1` sentinel and `Option` fields to `None`,
-/// meaning "leave at libjxl's own default". This is a plain struct (not
-/// `#[non_exhaustive]`): construct it with a struct literal plus
-/// `..Default::default()`. The two `extra_*_options` vectors are escape hatches
-/// that pass raw frame-setting ids through verbatim, so every libjxl toggle is
-/// reachable even if it has no dedicated field.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct LibjxlEncodeConfig {
-    /// Encoder-agnostic options. libjxl honours `BitDepth::Eight` and `BitDepth::Sixteen`.
-    pub common: CommonEncodeOptions,
-    /// Butteraugli distance: `0.0` is mathematically lossless, `1.0` visually
-    /// lossless, up to `25.0` (smaller files, monotonic). Ignored when `quality`
-    /// is `Some` or `lossless` is `true`.
-    pub distance: f32,
-    /// Optional JPEG-style quality, `0.0..=100.0`. When `Some`, libjxl converts
-    /// it to a distance and it overrides `distance`.
-    pub quality: Option<f32>,
-    /// Force bit-exact lossless encoding (overrides `distance`/`quality`).
+    /// Mathematically lossless encoding (bit-exact round-trip). When set,
+    /// `distance` is ignored. Default: `true`, matching gamut-jxl's default
+    /// mode and the previous default JXL backend (quality 0.0 = lossless).
     pub lossless: bool,
-    /// Effort / speed-quality trade-off, `1` (fastest) ..= `10` (slowest, best).
+    /// Butteraugli target distance for lossy encoding, finite and in
+    /// `(0.0, 25.0]`: `1.0` is "visually lossless", larger is smaller files.
+    /// Used only when `lossless` is `false`. Default: `1.0`.
+    pub distance: f32,
+    /// Effort / speed-density trade-off, `1` (fastest) ..= `10` (slowest,
+    /// densest); maps onto libjxl's effort levels. Default: `7`.
     pub effort: u8,
-    /// Brotli effort for the metadata/modular streams, `-1` (default) or `0..=11`.
-    pub brotli_effort: i8,
-    /// Decoder-speed tier the stream is optimised for, `0` (default, best) ..= `4`.
-    pub decoding_speed: u8,
-    /// Emit a responsive / progressive stream (sets `RESPONSIVE` + `PROGRESSIVE_DC`).
-    pub progressive: bool,
-    /// Modular vs VarDCT mode.
-    pub modular: LibjxlModular,
-    /// Internal color transform.
-    pub color_transform: LibjxlColorTransform,
-    /// Edge-preserving filter strength, `-1` (default) ..= `3`.
-    pub epf: i8,
-    /// Gaborish deblocking filter: `None` = default, `Some(false)`/`Some(true)` = off/on.
-    pub gaborish: Option<bool>,
-    /// Adaptive noise synthesis: `None` = default, `Some(false)`/`Some(true)` = off/on.
-    pub noise: Option<bool>,
-    /// Dots synthesis: `None` = default, `Some(false)`/`Some(true)` = off/on.
-    pub dots: Option<bool>,
-    /// Patches synthesis: `None` = default, `Some(false)`/`Some(true)` = off/on.
-    pub patches: Option<bool>,
-    /// Photon-noise simulation strength in ISO units (`0.0` = off).
-    pub photon_noise_iso: f32,
-    /// Downsampling factor, `-1` (default), `1`, `2`, `4`, or `8`.
-    pub resampling: i8,
-    /// Force the BMFF container even when a bare codestream would do.
+    /// Force the ISO BMFF `.jxl` container even when no metadata box requires
+    /// it. Embedding EXIF or XMP switches to the container automatically;
+    /// otherwise the output is a bare codestream. Default: `false`.
     pub use_container: bool,
-    /// JPEG XL codestream feature level: `-1` (auto), `5`, or `10`.
-    pub codestream_level: i8,
-    /// Escape hatch: raw `(JxlEncoderFrameSettingId, value)` integer settings
-    /// applied verbatim, for any toggle without a dedicated field above.
-    pub extra_int_options: Vec<(i32, i64)>,
-    /// Escape hatch: raw `(JxlEncoderFrameSettingId, value)` float settings.
-    pub extra_float_options: Vec<(i32, f32)>,
+    /// Declared coded bit depth N (`1..=16`): 16-bit samples then carry N-bit
+    /// code values (`0..=2^N - 1`) instead of full-range 16-bit. `None` (the
+    /// default) declares the storage width.
+    pub coded_bit_depth: Option<u8>,
 }
 
-impl Default for LibjxlEncodeConfig {
+impl Default for JxlEncodeConfig {
     fn default() -> Self {
         Self {
             common: CommonEncodeOptions::default(),
+            lossless: true,
             distance: 1.0,
-            quality: None,
-            lossless: false,
             effort: 7,
-            brotli_effort: -1,
-            decoding_speed: 0,
-            progressive: false,
-            modular: LibjxlModular::Auto,
-            color_transform: LibjxlColorTransform::Auto,
-            epf: -1,
-            gaborish: None,
-            noise: None,
-            dots: None,
-            patches: None,
-            photon_noise_iso: 0.0,
-            resampling: -1,
             use_container: false,
-            codestream_level: -1,
-            extra_int_options: Vec::new(),
-            extra_float_options: Vec::new(),
+            coded_bit_depth: None,
         }
     }
 }
@@ -635,12 +540,10 @@ pub enum EncodeOptions {
     /// (requires `avif-encode-libaom`).
     #[cfg(feature = "avif-encode-libaom")]
     AvifLibaom(LibaomEncodeConfig),
-    /// JPEG XL via `zune-jpegxl` (requires `jxl-encode`).
+    /// JPEG XL via `gamut-jxl`, wrapping the reference libjxl encoder
+    /// (requires `jxl-encode`).
     #[cfg(feature = "jxl-encode")]
-    JxlZune(ZuneJxlEncodeConfig),
-    /// JPEG XL via `libjxl`, the reference encoder (requires `jxl-encode-libjxl`).
-    #[cfg(feature = "jxl-encode-libjxl")]
-    JxlLibjxl(LibjxlEncodeConfig),
+    Jxl(JxlEncodeConfig),
     /// DNG via the in-repo encoder (requires `dng-encode`).
     #[cfg(feature = "dng-encode")]
     Dng(DngEncodeConfig),
@@ -697,16 +600,10 @@ impl EncodeOptions {
         Self::AvifLibaom(LibaomEncodeConfig::default())
     }
 
-    /// JPEG XL with default configuration.
+    /// JPEG XL with default configuration (lossless).
     #[cfg(feature = "jxl-encode")]
     pub fn jxl() -> Self {
-        Self::JxlZune(ZuneJxlEncodeConfig::default())
-    }
-
-    /// JPEG XL via the libjxl reference encoder, with default configuration.
-    #[cfg(feature = "jxl-encode-libjxl")]
-    pub fn jxl_libjxl() -> Self {
-        Self::JxlLibjxl(LibjxlEncodeConfig::default())
+        Self::Jxl(JxlEncodeConfig::default())
     }
 
     /// DNG with default configuration.
@@ -731,9 +628,7 @@ impl EncodeOptions {
             #[cfg(feature = "avif-encode-libaom")]
             EncodeOptions::AvifLibaom(_) => OutputFormat::Avif,
             #[cfg(feature = "jxl-encode")]
-            EncodeOptions::JxlZune(_) => OutputFormat::Jxl,
-            #[cfg(feature = "jxl-encode-libjxl")]
-            EncodeOptions::JxlLibjxl(_) => OutputFormat::Jxl,
+            EncodeOptions::Jxl(_) => OutputFormat::Jxl,
             #[cfg(feature = "dng-encode")]
             EncodeOptions::Dng(_) => OutputFormat::Dng,
             // Unreachable: with no encode feature enabled `EncodeOptions` has
@@ -759,9 +654,7 @@ impl EncodeOptions {
             #[cfg(feature = "avif-encode-libaom")]
             EncodeOptions::AvifLibaom(_) => CodecId::new("avif/libaom"),
             #[cfg(feature = "jxl-encode")]
-            EncodeOptions::JxlZune(_) => CodecId::new("jxl/zune"),
-            #[cfg(feature = "jxl-encode-libjxl")]
-            EncodeOptions::JxlLibjxl(_) => CodecId::new("jxl/libjxl"),
+            EncodeOptions::Jxl(_) => CodecId::new("jxl/gamut"),
             #[cfg(feature = "dng-encode")]
             EncodeOptions::Dng(_) => CodecId::new("dng/rawshift"),
             #[allow(unreachable_patterns)]
@@ -788,9 +681,7 @@ impl EncodeOptions {
             #[cfg(feature = "avif-encode-libaom")]
             EncodeOptions::AvifLibaom(c) => c.common,
             #[cfg(feature = "jxl-encode")]
-            EncodeOptions::JxlZune(c) => c.common,
-            #[cfg(feature = "jxl-encode-libjxl")]
-            EncodeOptions::JxlLibjxl(c) => c.common,
+            EncodeOptions::Jxl(c) => c.common,
             #[cfg(feature = "dng-encode")]
             EncodeOptions::Dng(c) => CommonEncodeOptions {
                 metadata: MetadataEmbedOptions {

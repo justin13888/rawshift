@@ -476,21 +476,17 @@ fn avif_has_icc(data: &[u8]) -> bool {
         .any(|w| &w[..4] == b"colr" && (&w[4..8] == b"rICC" || &w[4..8] == b"prof"))
 }
 
-/// Check if JXL container data contains an `iccp` box.
+/// Check if JXL data carries an embedded ICC profile.
+///
+/// gamut-jxl embeds the ICC profile in the codestream's colour metadata (not a
+/// container box), so the check reads the stream headers back through the
+/// decoder rather than scanning for a box.
 #[cfg(feature = "jxl-encode")]
 fn jxl_has_icc(data: &[u8]) -> bool {
-    let mut pos = 0;
-    while pos + 8 <= data.len() {
-        let sz = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
-        if &data[pos + 4..pos + 8] == b"iccp" {
-            return true;
-        }
-        if sz < 8 {
-            break;
-        }
-        pos += sz;
-    }
-    false
+    matches!(
+        gamut_jxl::JxlDecoder::new().embedded_icc_profile(data),
+        Ok(Some(_))
+    )
 }
 
 /// Check if data is a JXL container (has "JXL " signature at offset 4).
@@ -644,20 +640,45 @@ mod avif_libaom_tests {
 #[cfg(feature = "jxl-encode")]
 mod jxl_tests {
     use super::*;
-    use rawshift_image::formats::export::ZuneJxlEncodeConfig;
+    #[cfg(feature = "jxl-decode")]
+    use rawshift_image::formats::decode_standard_image;
+    use rawshift_image::formats::export::JxlEncodeConfig;
+    use rawshift_image::formats::{StandardFormat, available_encoders};
 
     fn jxl(exif: bool, icc: bool) -> EncodeOptions {
-        EncodeOptions::JxlZune(ZuneJxlEncodeConfig {
+        EncodeOptions::Jxl(JxlEncodeConfig {
             common: common(exif, icc, true),
-            ..ZuneJxlEncodeConfig::default()
+            ..JxlEncodeConfig::default()
         })
+    }
+
+    /// 16-bit synthetic image with distinct per-sample values (so a lossless
+    /// round-trip is a meaningful check). 48 samples, all within `u16`.
+    #[cfg(feature = "jxl-decode")]
+    fn distinct_16bit() -> RgbImage {
+        let data: Vec<u16> = (0..4 * 4 * 3)
+            .map(|i| ((i as u32 * 4099) % 65536) as u16)
+            .collect();
+        RgbImage::new(4, 4, data).expect("valid RGB buffer")
     }
 
     #[test]
     fn test_jxl_config_default_has_embed_icc() {
         assert!(
-            ZuneJxlEncodeConfig::default().common.metadata.embed_icc,
-            "ZuneJxlEncodeConfig default should embed ICC"
+            JxlEncodeConfig::default().common.metadata.embed_icc,
+            "JxlEncodeConfig default should embed ICC"
+        );
+        assert!(
+            JxlEncodeConfig::default().lossless,
+            "JxlEncodeConfig default should be lossless"
+        );
+    }
+
+    #[test]
+    fn jxl_registers_as_encoder() {
+        assert!(
+            available_encoders().iter().any(|c| c.id.id == "jxl/gamut"),
+            "jxl/gamut should be listed when the feature is enabled"
         );
     }
 
@@ -666,7 +687,8 @@ mod jxl_tests {
         let img = synthetic_image();
         let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jxl(false, true))
             .expect("Export JXL");
-        assert!(jxl_is_container(&data), "JXL should be container format");
+        // The profile lives in the codestream's colour metadata, so no
+        // container framing is needed for ICC alone.
         assert!(jxl_has_icc(&data), "JXL should contain ICC profile");
     }
 
@@ -685,108 +707,89 @@ mod jxl_tests {
             .expect("Export JXL");
         assert!(jxl_has_icc(&data), "Default JXL should embed ICC");
     }
-}
-
-// ============================================================================
-// JXL Export Tests — libjxl backend (opt-in `jxl-encode-libjxl`)
-// ============================================================================
-
-#[cfg(feature = "jxl-encode-libjxl")]
-mod libjxl_tests {
-    use super::*;
-    use rawshift_image::formats::export::LibjxlEncodeConfig;
-    use rawshift_image::formats::{StandardFormat, available_encoders, decode_standard_image};
-
-    /// 16-bit synthetic image with distinct per-sample values (so a lossless
-    /// round-trip is a meaningful check). 48 samples, all within `u16`.
-    fn distinct_16bit() -> RgbImage {
-        let data: Vec<u16> = (0..4 * 4 * 3)
-            .map(|i| ((i as u32 * 4099) % 65536) as u16)
-            .collect();
-        RgbImage::new(4, 4, data).expect("valid RGB buffer")
-    }
 
     #[test]
-    fn libjxl_registers_as_encoder() {
+    fn test_jxl_export_with_exif_uses_container() {
+        // EXIF becomes an `Exif` container box, which forces ISO BMFF framing.
+        let img = synthetic_image();
+        let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jxl(true, false))
+            .expect("Export JXL");
         assert!(
-            available_encoders().iter().any(|c| c.id.id == "jxl/libjxl"),
-            "jxl/libjxl should be listed when the feature is enabled"
+            jxl_is_container(&data),
+            "JXL with EXIF should be container format"
         );
     }
 
+    #[cfg(feature = "jxl-decode")]
     #[test]
-    fn libjxl_encodes_and_decodes_roundtrip() {
+    fn jxl_encodes_and_decodes_roundtrip() {
         let img = synthetic_image();
-        let opts = EncodeOptions::JxlLibjxl(LibjxlEncodeConfig {
-            common: common(false, false, false),
-            ..LibjxlEncodeConfig::default()
-        });
-        let bytes = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &opts)
-            .expect("encode JXL via libjxl");
+        let bytes = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jxl(false, false))
+            .expect("encode JXL");
         assert!(!bytes.is_empty());
         assert_eq!(
             rawshift_image::formats::detect_standard_format(&bytes),
             Some(StandardFormat::Jxl),
-            "libjxl output should be detected as JXL"
+            "output should be detected as JXL"
         );
         let decoded = decode_standard_image(&bytes, StandardFormat::Jxl).expect("decode JXL");
         assert_eq!(decoded.width(), 4);
         assert_eq!(decoded.height(), 4);
     }
 
+    #[cfg(feature = "jxl-decode")]
     #[test]
-    fn libjxl_lossless_16bit_is_exact() {
+    fn jxl_lossless_16bit_is_exact() {
         let img = distinct_16bit();
         let want = img.data().to_vec();
-        let opts = EncodeOptions::JxlLibjxl(LibjxlEncodeConfig {
-            common: common(false, false, false),
-            distance: 0.0,
-            lossless: true,
-            ..LibjxlEncodeConfig::default()
-        });
-        let bytes = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &opts)
+        // The default configuration is lossless 16-bit.
+        let bytes = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &jxl(false, false))
             .expect("encode lossless JXL");
         let decoded = decode_standard_image(&bytes, StandardFormat::Jxl).expect("decode JXL");
         assert_eq!(
             decoded.data(),
             want,
-            "lossless 16-bit libjxl round-trip must be exact"
+            "lossless 16-bit JXL round-trip must be exact"
         );
     }
 
     #[test]
-    fn libjxl_embeds_icc_when_requested() {
+    fn jxl_lossy_toggles_encode() {
         let img = synthetic_image();
-        let opts = EncodeOptions::JxlLibjxl(LibjxlEncodeConfig {
-            common: common(false, true, false),
-            ..LibjxlEncodeConfig::default()
-        });
-        let data =
-            encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &opts).expect("encode JXL");
-        assert!(
-            jxl_has_icc(&data),
-            "libjxl JXL should contain an ICC profile box"
-        );
-    }
-
-    #[test]
-    fn libjxl_toggles_encode() {
-        // Exercise a spread of typed toggles. (The raw `extra_*_options` escape
-        // hatch is covered by the unit test in `codecs::jxl_libjxl`, which has the
-        // real `JxlEncoderFrameSettingId` constants in scope.)
-        let img = synthetic_image();
-        let opts = EncodeOptions::JxlLibjxl(LibjxlEncodeConfig {
+        let opts = EncodeOptions::Jxl(JxlEncodeConfig {
             common: common(false, false, false),
+            lossless: false,
             distance: 3.0,
             effort: 4,
-            modular: rawshift_image::formats::export::LibjxlModular::Modular,
-            progressive: true,
-            decoding_speed: 2,
-            ..LibjxlEncodeConfig::default()
+            ..JxlEncodeConfig::default()
         });
         let bytes = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &opts)
-            .expect("encode JXL with toggles");
+            .expect("encode lossy JXL");
         assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn jxl_rejects_invalid_effort_and_distance() {
+        let img = synthetic_image();
+        let bad_effort = EncodeOptions::Jxl(JxlEncodeConfig {
+            common: common(false, false, false),
+            effort: 11,
+            ..JxlEncodeConfig::default()
+        });
+        assert!(
+            encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &bad_effort).is_err(),
+            "effort 11 must be rejected"
+        );
+        let bad_distance = EncodeOptions::Jxl(JxlEncodeConfig {
+            common: common(false, false, false),
+            lossless: false,
+            distance: 0.0,
+            ..JxlEncodeConfig::default()
+        });
+        assert!(
+            encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &bad_distance).is_err(),
+            "lossy distance 0.0 must be rejected (lossless is a mode, not a distance)"
+        );
     }
 }
 
@@ -907,8 +910,6 @@ mod encode_options_tests {
         let _ = EncodeOptions::avif();
         #[cfg(feature = "jxl-encode")]
         let _ = EncodeOptions::jxl();
-        #[cfg(feature = "jxl-encode-libjxl")]
-        let _ = EncodeOptions::jxl_libjxl();
         #[cfg(feature = "dng-encode")]
         let _ = EncodeOptions::dng();
     }

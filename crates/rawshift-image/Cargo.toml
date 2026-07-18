@@ -13,10 +13,12 @@ categories = ["multimedia::images", "encoding", "parser-implementations"]
 readme = "README.md"
 
 [package.metadata.docs.rs]
-# `heic-vendored`, the `jxl-encode-libjxl*`, `jpeg-encode-jpegli*`, and
-# `avif-encode-libaom*` features are intentionally excluded: each builds a C/C++
-# library from source (or links a system one) and is an alternative linking mode,
-# not an additive feature.
+# `heic-vendored`, the `jpeg-encode-jpegli*`, and `avif-encode-libaom*`
+# features are intentionally excluded: each builds a C/C++ library from source
+# (or links a system one) and is an alternative linking mode, not an additive
+# feature. (`jxl-encode` builds libjxl too — via gamut-jxl-sys — but docs.rs
+# builds it fine because the build is hermetic under OUT_DIR; it is part of
+# `full`.)
 features = ["full"]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -45,11 +47,15 @@ gamut-metadata = { workspace = true, optional = true }
 # PNG decode stays on zune-png until the gamut decoder migration (#32).
 gamut-png      = { workspace = true, optional = true }
 gamut-xmp      = { workspace = true, optional = true }
+# gamut-jxl backs JPEG XL decode (a pure-Rust jxl-rs wrapper — no C toolchain)
+# and encode (the reference libjxl, vendored, cmake-built, and statically
+# linked by gamut-jxl-sys; needs cmake + a C++ toolchain). Which half is
+# compiled is selected by the `jxl-decode` / `jxl-encode` features.
+gamut-jxl      = { workspace = true, optional = true }
 libheif-rs     = { version = "2.7",    optional = true }
 libwebp-sys    = { version = "0.14",   optional = true }
 img-parts      = { version = "0.4",    optional = true }
 jpeg-encoder   = { version = "0.7",    optional = true }
-jxl-oxide      = { version = "0.12.5", optional = true }
 rayon          = { workspace = true }
 image          = { version = "0.25", default-features = false, features = ["avif-native"], optional = true }
 ravif          = { version = "0.13",   optional = true }
@@ -67,22 +73,19 @@ thiserror      = { workspace = true }
 tracing        = { workspace = true }
 zune-core      = { version = "0.5",    optional = true }
 zune-jpeg      = { version = "0.5",    optional = true }
-zune-jpegxl    = { version = "0.5",    optional = true }
 zune-png       = { version = "0.5",    optional = true }
 zune-ppm       = { version = "0.5",    optional = true }
 gif            = { version = "0.13",   optional = true }
 tiff           = { version = "0.11",   optional = true }
 
 [build-dependencies]
-# Compiled only when a `jxl-encode-libjxl*` or `jpeg-encode-jpegli*` feature is
-# enabled (see [features]). All permissive (no GPL): bindgen (BSD-3) generates
-# the C-API bindings; pkg-config resolves a system libjxl/libjpegli; jpegxl-src
-# (BSD-3) builds libjxl from source via cmake for the vendored libjxl feature;
-# cc (MIT/Apache) compiles the jpegli setjmp shim; cmake (MIT/Apache) builds the
-# vendored google/jpegli submodule.
+# Compiled only when a `jpeg-encode-jpegli*` or `avif-encode-libaom*` feature
+# is enabled (see [features]). All permissive (no GPL): bindgen (BSD-3)
+# generates the C-API bindings; pkg-config resolves a system libjpegli/libaom;
+# cc (MIT/Apache) compiles the jpegli setjmp shim; cmake (MIT/Apache) builds
+# the vendored google/jpegli submodule.
 bindgen    = { version = "0.72",   optional = true }
 pkg-config = { version = "0.3",    optional = true }
-jpegxl-src = { version = "0.11.4", optional = true }
 cc         = { version = "1",      optional = true }
 cmake      = { version = "0.1",    optional = true }
 
@@ -93,6 +96,9 @@ eyre = "0.6.12"
 # dng_check exercises the gamut-ifd tree directly (structural DNG assertions
 # feeding justin13888/gamut#174).
 gamut-ifd = { workspace = true, features = ["bigtiff"] }
+# export_format_tests reads back the ICC profile gamut-jxl embeds in the JXL
+# codestream (`JxlDecoder::embedded_icc_profile`) — a box-scan cannot see it.
+gamut-jxl = { workspace = true, features = ["decode"] }
 serde = { workspace = true }
 serde_json = "1.0"
 tokio = { version = "1.50", features = ["full"] }
@@ -110,7 +116,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #   tier 5  infrastructure     ifd-parser, serde, zune-runtime, exif, …
 #
 # Only tier-4 features (plus RAW tier-3 features and the gamut-backed
-# `png-encode`, which have a single implementation) reference `dep:*`.
+# `png-encode` / `jxl-decode` / `jxl-encode`, which have a single
+# implementation) reference `dep:*`.
 default = ["jpeg", "png", "webp", "jxl-decode", "gif-decode", "tiff-decode", "ppm-decode"]
 
 # ── Tier 1: bundle features ───────────────────────────────────────────────────
@@ -154,8 +161,14 @@ png-decode  = ["png-decode-zune"]
 png-encode  = ["dep:gamut-png", "exif"]
 webp-decode = ["webp-decode-libwebp"]
 webp-encode = ["webp-encode-libwebp"]
-jxl-decode  = ["jxl-decode-jxl-oxide"]
-jxl-encode  = ["jxl-encode-zune"]
+# JXL is backed directly by gamut-jxl (no tier-4 layer): like `png-encode` and
+# the RAW direction features, each half has a single gamut-backed
+# implementation, so the format-direction feature itself pulls the dependency.
+# Decode wraps the pure-Rust jxl-rs decoder; encode wraps the reference libjxl
+# (statically built and linked by gamut-jxl-sys — cmake + C++ toolchain).
+# `exif` supplies the ExifBuilder used for the container `Exif` box on encode.
+jxl-decode  = ["dep:gamut-jxl", "gamut-jxl/decode"]
+jxl-encode  = ["dep:gamut-jxl", "gamut-jxl/encode", "exif"]
 gif-decode  = ["gif-decode-gif"]
 tiff-decode = ["tiff-decode-tiff"]
 avif-decode = ["avif-decode-image"]
@@ -183,8 +196,8 @@ raf-decode  = []
 # standalone. Multiple implementations of the same format+direction may be
 # enabled at once; the active backend is chosen at the API level — see
 # `DecodeOptions` and `EncodeOptions`.
-# `zune-jpeg`/`zune-png`/`zune-jpegxl` all build on the `zune-core` codec
-# primitives, so each zune-backed impl feature also pulls `zune-runtime`.
+# `zune-jpeg`/`zune-png` build on the `zune-core` codec primitives, so each
+# zune-backed impl feature also pulls `zune-runtime`.
 jpeg-decode-zune     = ["jpeg-decode", "dep:zune-jpeg", "zune-runtime", "exif"]
 jpeg-encode-jpeg-enc = ["jpeg-encode", "dep:jpeg-encoder", "exif", "container-embed"]
 # Alternative JPEG encoder via jpegli (libjxl's perceptual JPEG encoder):
@@ -196,13 +209,6 @@ jpeg-encode-jpegli   = ["jpeg-encode", "exif", "container-embed", "dep:bindgen",
 png-decode-zune      = ["png-decode", "dep:zune-png", "zune-runtime", "exif"]
 webp-decode-libwebp  = ["webp-decode", "dep:libwebp-sys", "exif"]
 webp-encode-libwebp  = ["webp-encode", "dep:libwebp-sys", "exif", "container-embed"]
-jxl-decode-jxl-oxide = ["jxl-decode", "dep:jxl-oxide"]
-jxl-encode-zune      = ["jxl-encode", "jxl-decode", "dep:zune-jpegxl", "zune-runtime", "exif", "container-embed"]
-# Alternative JXL encoder via libjxl (the reference encoder): 16-bit, true
-# lossless, full toggle control. Enabling it keeps `jxl-encode-zune` compiled in
-# too (tier-3 aliases the default impl); the active backend is chosen via
-# `EncodeOptions`. Links system libjxl by default — see `jxl-encode-libjxl-vendored`.
-jxl-encode-libjxl    = ["jxl-encode", "exif", "container-embed", "dep:bindgen", "dep:pkg-config"]
 gif-decode-gif       = ["gif-decode", "dep:gif"]
 tiff-decode-tiff     = ["tiff-decode", "dep:tiff", "exif"]
 avif-decode-image    = ["avif-decode", "dep:image", "exif"]
@@ -238,11 +244,6 @@ container-embed = ["dep:img-parts", "dep:gamut-xmp"]
 # pkg-config); `heic-vendored` builds libheif from source via cmake and links
 # it statically (needs a C/C++ toolchain + cmake). Enable exactly one.
 heic-vendored = ["heic-decode", "libheif-rs/embedded-libheif"]
-# libjxl linking mode. `jxl-encode-libjxl` links the system libjxl (resolved by
-# pkg-config); `jxl-encode-libjxl-vendored` builds libjxl from source via cmake
-# and links it statically (needs a C/C++ toolchain + cmake). Distro libjxl is
-# usually too old for the 0.11.x ABI, so the vendored mode is the reliable path.
-jxl-encode-libjxl-vendored = ["jxl-encode-libjxl", "dep:jpegxl-src"]
 # jpegli linking mode. `jpeg-encode-jpegli` links a system libjpegli (resolved by
 # pkg-config — rarely packaged on distros yet); `jpeg-encode-jpegli-vendored`
 # builds the vendored `google/jpegli` submodule from source via cmake and links

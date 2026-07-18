@@ -18,7 +18,7 @@ the `tiff-parser` API, or `heic-vendored` linking.
 | Canon CR2    | Custom LJPEG (Incomplete)                                                                | N/A                                                                                              | No test fixtures.                         |
 | Canon CR3    | Custom ISOBMFF parser (Incomplete)                                                       | N/A                                                                                              | Metadata only. CRX codec not implemented. |
 | Canon CRW    | Custom CIFF parser (Incomplete)                                                          | N/A                                                                                              | Detection only. No pixel decode.          |
-| Adobe DNG    | Custom TIFF + jxl-oxide (Stabilizing)                                                    | Custom TIFF writer (Stabilizing)                                                                 | Includes Apple ProRAW (DNG 1.7 + JXL).    |
+| Adobe DNG    | [gamut-dng](https://github.com/justin13888/gamut) (Stabilizing)                          | Custom TIFF writer (Stabilizing)                                                                 | Includes Apple ProRAW (DNG 1.7 + JXL).    |
 | Nikon NEF    | Custom TIFF parser (Incomplete)                                                          | N/A                                                                                              | No test fixtures.                         |
 | Fujifilm RAF | Custom RAF parser (Incomplete)                                                           | N/A                                                                                              | No test fixtures.                         |
 | JPEG         | [zune-jpeg](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg) (Stable) | [jpeg-encoder](https://github.com/vstroebel/jpeg-encoder) (Stable, default) · [jpegli](https://github.com/google/jpegli) (distance/XYB + 16-bit input, opt-in) | jpegli via `jpeg-encode-jpegli` (system) / `jpeg-encode-jpegli-vendored` (from source). |
@@ -26,7 +26,7 @@ the `tiff-parser` API, or `heic-vendored` linking.
 | WebP         | [libwebp-sys](https://github.com/noxf/libwebp-sys) (Stable)                              | [libwebp-sys](https://github.com/noxf/libwebp-sys) (Stable)                                      | C FFI bindings to libwebp.                |
 | GIF          | [gif](https://github.com/image-rs/image-gif) (Stable)                                    | Not planned                                                                                      |                                           |
 | TIFF         | [tiff](https://github.com/image-rs/image-tiff) (Stable)                                  | Not planned                                                                                      |                                           |
-| JXL          | [jxl-oxide](https://github.com/tirr-c/jxl-oxide) (Stable)                                | [zune-jpegxl](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpegxl) (Functional, default) · [libjxl](https://github.com/libjxl/libjxl) (16-bit + lossless, opt-in) | libjxl via `jxl-encode-libjxl` (system) / `jxl-encode-libjxl-vendored` (from source). |
+| JXL          | [gamut-jxl](https://github.com/justin13888/gamut) (Stable)                               | [gamut-jxl](https://github.com/justin13888/gamut) (Stable)                                       | Decode is pure Rust (jxl-rs); encode wraps the reference libjxl, cmake-built and statically linked by gamut-jxl-sys. |
 | AVIF         | [image/avif-native](https://github.com/image-rs/image) (Functional)                      | [ravif](https://github.com/kornelski/cavif-rs/tree/main/ravif) (Functional, default) · [libaom](https://aomedia.googlesource.com/aom/) (8/10/12-bit, 4:4:4, opt-in) | libaom via `avif-encode-libaom` (system) / `avif-encode-libaom-vendored` (from source). |
 | HEIC         | [libheif](https://github.com/strukturag/libheif) (Functional)                            | Not planned                                                                                      | Requires `heic` feature; `heic-vendored` builds libheif from source. |
 | SVG          | [resvg/tiny-skia](https://github.com/linebender/resvg) (Functional)                      | Not planned                                                                                      |                                           |
@@ -46,7 +46,7 @@ implementations are named and selected.
 Cargo features are organised in five tiers, from high-level bundles down to
 individual library bindings. Each tier is defined purely in terms of the tier
 below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
-`png-encode`) pull in an external crate.
+`png-encode` / `jxl-decode` / `jxl-encode`) pull in an external crate.
 
 1. **Bundle features** — coarse, ready-made groupings.
    - `default` — `jpeg`, `png`, `webp`, `jxl-decode`, `gif-decode`, `tiff-decode`, `ppm-decode`.
@@ -65,9 +65,12 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
      `tiff-decode`, `avif-decode`, `avif-encode`, `heic-decode`, `svg-decode`,
      `ppm-decode` — each is an **alias for that format+direction's default
      implementation**.
-     This is where the per-format default is defined. Exception: `png-encode`
-     has a single gamut-backed implementation (`gamut-png`) and pulls it
-     directly, with no tier-4 layer below it.
+     This is where the per-format default is defined. Exception: `png-encode`,
+     `jxl-decode`, and `jxl-encode` each have a single gamut-backed
+     implementation (`gamut-png` / `gamut-jxl`) and pull it directly, with no
+     tier-4 layer below them. (`jxl-encode` wraps the reference libjxl, which
+     `gamut-jxl-sys` cmake-builds and links statically — it needs cmake and a
+     C++ toolchain.)
    - RAW formats: `arw-decode`, `cr2-decode`, `cr3-decode`, `crw-decode`,
      `dng-decode`, `dng-encode`, `nef-decode`, `raf-decode` — RAW formats have a
      single in-repo implementation, so there is no tier-4 layer below them.
@@ -79,7 +82,6 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
    - `jpeg-decode-zune`, `jpeg-encode-jpeg-enc`, `jpeg-encode-jpegli`
    - `png-decode-zune`
    - `webp-decode-libwebp`, `webp-encode-libwebp`
-   - `jxl-decode-jxl-oxide`, `jxl-encode-zune`, `jxl-encode-libjxl`
    - `gif-decode-gif`, `tiff-decode-tiff`
    - `avif-decode-image`, `avif-encode-ravif`, `avif-encode-libaom`
    - `heic-decode-libheif`, `svg-decode-resvg`
@@ -94,9 +96,6 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
      validation (`gamut-xmp`); pulled by encode impls that embed EXIF/ICC/XMP.
    - `heic-vendored` — build libheif from source and link it statically, instead
      of linking the system libheif (`heic`). Requires a C/C++ toolchain + cmake.
-   - `jxl-encode-libjxl-vendored` — build libjxl from source via cmake and link
-     it statically, instead of linking the system libjxl (`jxl-encode-libjxl`).
-     Requires a C/C++ toolchain, cmake, and `libclang` (for bindgen).
    - `jpeg-encode-jpegli-vendored` — build the vendored `google/jpegli` submodule
      from source via cmake and link it statically, instead of linking a system
      libjpegli (`jpeg-encode-jpegli`). Requires a C/C++ toolchain, cmake, and

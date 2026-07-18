@@ -3,8 +3,8 @@
  * jpegli (like libjpeg) signals fatal errors by calling `error_exit`, whose
  * default implementation calls `exit()`. That cannot be driven safely from
  * Rust, so the whole compress sequence lives here in C++ behind a `setjmp`
- * guard and is exposed as a single return-code function — the same clean
- * `Result`-shaped boundary the libjxl backend gets from libjxl's own C API.
+ * guard and is exposed as a single return-code function — a clean
+ * `Result`-shaped boundary like the one libjxl's return-code C API provides.
  *
  * The implementation (jpegli_shim.cc) is the only place that includes jpegli's
  * C++ headers; this header is self-contained (stdint/stddef only) so bindgen

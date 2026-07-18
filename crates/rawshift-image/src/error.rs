@@ -217,10 +217,6 @@ pub enum EncodeError {
     #[error("WebP error: {0}")]
     WebP(String),
 
-    /// JPEG XL (libjxl) encoding error.
-    #[error("JXL error: {0}")]
-    Jxl(String),
-
     /// JPEG (jpegli) encoding error.
     #[error("jpegli error: {0}")]
     Jpegli(String),
