@@ -7,6 +7,14 @@
 #
 # The "one crate owns the changelog, the rest fold in via `changelog_include`"
 # pattern mirrors how release-plz configures its own multi-crate repository.
+#
+# Publish order (dependency order — cargo resolves it, this records the intent):
+#
+#   rawshift-core -> rawshift-hwdec -> rawshift-image -> rawshift
+#
+# `rawshift-hwdec` does not exist yet; it is created by the hardware-decode
+# issue and gets its `[[package]]` entry then. `rawshift-video` is parked and
+# unpublished for v1 (`publish = false`) and so is absent from this order.
 
 [workspace]
 # One GitHub release for the whole project, created by the `rawshift` facade
@@ -17,7 +25,7 @@ git_release_enable = false
 name = "rawshift"
 # The facade owns the single project-wide changelog and release artifacts.
 changelog_path = "./CHANGELOG.md"
-changelog_include = ["rawshift-core", "rawshift-image", "rawshift-video"]
+changelog_include = ["rawshift-core", "rawshift-image"]
 git_release_enable = true
 git_tag_name = "v{{ version }}"      # e.g. v0.1.0 (not rawshift-v0.1.0)
 git_release_name = "v{{ version }}"
@@ -34,5 +42,8 @@ git_tag_enable = false
 
 [[package]]
 name = "rawshift-video"
+# Parked for v1: the crate carries `publish = false`, so release-plz must not
+# try to release it, changelog it, or tag it.
+release = false
 changelog_update = false
 git_tag_enable = false

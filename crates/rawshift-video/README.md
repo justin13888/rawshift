@@ -2,10 +2,15 @@
 
 Video format support for [rawshift](https://github.com/justin13888/rawshift).
 
-> **Status: planned, not yet implemented.** No video code ships today. This
-> crate exists so the feature tree, public API, and the
-> [`rawshift`](https://crates.io/crates/rawshift) facade can be laid out ahead
-> of the decoder work.
+> **Status: parked for v1, unpublished.** rawshift v1 ships image only. No
+> video code ships today, this crate is marked `publish = false`, and it is
+> **not** a dependency of the [`rawshift`](https://crates.io/crates/rawshift)
+> facade — there is no `video` feature to enable. The crate remains in the
+> workspace to hold the roadmap below and the workspace slot for post-v1 work.
+>
+> It is re-added to the publish set and to the facade when it has an
+> implementation to publish. Until then the feature flags below gate no code and
+> should be treated as a design sketch, not a supported surface.
 
 ## Roadmap
 
@@ -27,8 +32,8 @@ are ISOBMFF-based). Codec-level decoding is a later milestone.
 ## Feature Flags
 
 Video features mirror the `rawshift-image` tier structure but currently gate no
-code or dependencies — they exist so the surface is laid out ahead of the
-decoder work.
+code or dependencies. They are a design sketch for post-v1 work and are not
+reachable through the `rawshift` facade — see the status note above.
 
 - **Bundles** — `video` (all formats), `full`.
 - **Formats** — `xavc-hs`, `xavc-s`, `hevc`, `h264`, `prores`.

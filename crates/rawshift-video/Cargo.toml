@@ -11,6 +11,11 @@ documentation = "https://docs.rs/rawshift-video"
 keywords = ["video", "raw", "metadata"]
 categories = ["multimedia::video"]
 readme = "README.md"
+# Parked for v1: rawshift v1 ships image only. This crate is an unpublished
+# placeholder that holds the workspace slot and roadmap for post-v1 video work.
+# It is excluded from the publish set and from the `rawshift` facade until it
+# has an implementation to publish. See README.md and release-plz.toml.
+publish = false
 
 [dependencies]
 

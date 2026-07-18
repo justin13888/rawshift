@@ -121,18 +121,30 @@ jobs:
         with:
           toolchain: "1.90.0"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p rawshift --no-default-features --features video
-      # Assert the video-only build pulls in zero image crates — this is the
-      # contract the image/video workspace split exists to guarantee.
-      - name: Assert no image crates in the video-only dependency tree
+      # `rawshift-video` is parked and unpublished for v1, and the facade no
+      # longer has a `video` feature, so this builds the crate directly.
+      - run: cargo build -p rawshift-video --all-features
+      # Assert the video build pulls in zero image crates — this is the contract
+      # the image/video workspace split exists to guarantee, and it must keep
+      # holding while the crate is parked.
+      - name: Assert no image crates in the video dependency tree
         run: |
-          tree=$(cargo tree -p rawshift --no-default-features --features video --prefix none --no-dedupe)
+          tree=$(cargo tree -p rawshift-video --all-features --prefix none --no-dedupe)
           echo "$tree"
           if echo "$tree" | grep -qiE 'rawshift-image|zune-|libheif|libwebp|img-parts|little_exif|resvg|ravif|jxl-oxide|^image '; then
-            echo "::error::video-only build pulled in image crates"
+            echo "::error::video build pulled in image crates"
             exit 1
           fi
-          echo "OK: video-only build is free of image crates"
+          echo "OK: video build is free of image crates"
+      # Assert the parked crate stays out of the facade entirely.
+      - name: Assert the facade does not depend on rawshift-video
+        run: |
+          tree=$(cargo tree -p rawshift --all-features --prefix none --no-dedupe)
+          if echo "$tree" | grep -q 'rawshift-video'; then
+            echo "::error::rawshift facade depends on the parked rawshift-video crate"
+            exit 1
+          fi
+          echo "OK: facade is free of rawshift-video"
 
   coverage-report:
     name: Coverage Report
