@@ -1,10 +1,14 @@
 //! XMP metadata embedding for image export.
 //!
 //! Provides XMP embedding functions for JPEG, AVIF, JXL, and PNG formats.
+//! Every payload is validated with `gamut-xmp` before it is embedded, so a
+//! malformed packet is rejected instead of being spliced into the output.
 
 /// Error type for XMP embedding operations.
 #[derive(Debug)]
 pub enum XmpError {
+    /// The XMP payload is not a well-formed XMP packet
+    Invalid(String),
     /// Failed to manipulate image container
     Container(String),
 }
@@ -12,6 +16,7 @@ pub enum XmpError {
 impl std::fmt::Display for XmpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            XmpError::Invalid(msg) => write!(f, "Invalid XMP packet: {}", msg),
             XmpError::Container(msg) => write!(f, "XMP container error: {}", msg),
         }
     }
@@ -34,14 +39,28 @@ impl From<std::io::Error> for XmpError {
 /// Adobe XMP namespace marker used in JPEG APP1 segments.
 const XMP_JPEG_NS: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 
+/// Validate an XMP payload with `gamut-xmp` before embedding it.
+///
+/// Rejecting malformed packets here keeps garbage out of the output
+/// containers; a payload that round-trips through
+/// [`gamut_xmp::XmpMeta::from_packet`] is embeddable.
+fn validate_xmp(xmp_bytes: &[u8]) -> Result<(), XmpError> {
+    gamut_xmp::XmpMeta::from_packet(xmp_bytes)
+        .map(|_| ())
+        .map_err(|e| XmpError::Invalid(e.to_string()))
+}
+
 /// Append XMP metadata to existing JPEG data.
 ///
 /// XMP is embedded as an APP1 segment (0xE1) with the Adobe XMP namespace prefix
 /// `http://ns.adobe.com/xap/1.0/\0` followed by the raw XMP packet bytes.
+/// The payload is validated with `gamut-xmp` first.
 pub fn append_xmp_to_jpeg(xmp_bytes: &[u8], jpeg_data: Vec<u8>) -> Result<Vec<u8>, XmpError> {
     use img_parts::Bytes;
     use img_parts::jpeg::{Jpeg, JpegSegment, markers};
     use std::io::Cursor;
+
+    validate_xmp(xmp_bytes)?;
 
     let mut contents = Vec::with_capacity(XMP_JPEG_NS.len() + xmp_bytes.len());
     contents.extend_from_slice(XMP_JPEG_NS);
@@ -68,8 +87,11 @@ pub fn append_xmp_to_jpeg(xmp_bytes: &[u8], jpeg_data: Vec<u8>) -> Result<Vec<u8
 /// A top-level `xml ` ISOBMFF box containing the XMP packet is appended to the
 /// end of the data.  Since the new box follows all existing boxes (including
 /// `mdat`), no `iloc` extent offsets need to be patched.
+/// The payload is validated with `gamut-xmp` first.
 #[cfg_attr(not(feature = "avif"), allow(dead_code))]
 pub fn append_xmp_to_avif(xmp_bytes: &[u8], avif_data: Vec<u8>) -> Result<Vec<u8>, XmpError> {
+    validate_xmp(xmp_bytes)?;
+
     let mut data = avif_data;
     let box_size = (8 + xmp_bytes.len()) as u32;
     data.reserve(box_size as usize);
@@ -84,8 +106,11 @@ pub fn append_xmp_to_avif(xmp_bytes: &[u8], avif_data: Vec<u8>) -> Result<Vec<u8
 /// If `jxl_data` is a naked codestream (starts with `[0xFF, 0x0A]`), it is
 /// first wrapped in a JXL container.  An `xml ` box containing the XMP packet
 /// is then appended at the end of the container.
+/// The payload is validated with `gamut-xmp` first.
 #[cfg_attr(not(feature = "jxl-encode"), allow(dead_code))]
 pub fn append_xmp_to_jxl(xmp_bytes: &[u8], jxl_data: Vec<u8>) -> Result<Vec<u8>, XmpError> {
+    validate_xmp(xmp_bytes)?;
+
     let mut data = jxl_data;
 
     // Wrap naked codestream in a JXL container if needed.
@@ -126,6 +151,11 @@ pub fn append_xmp_to_jxl(xmp_bytes: &[u8], jxl_data: Vec<u8>) -> Result<Vec<u8>,
 mod tests {
     use super::*;
 
+    /// A minimal well-formed XMP body (`rdf:RDF` is required by the validator).
+    const VALID_XMP: &[u8] = b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+        <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>\
+        </x:xmpmeta>";
+
     #[test]
     fn test_append_xmp_to_jpeg_basic() {
         // Build a minimal valid JPEG: SOI + APP0 (JFIF) + EOI
@@ -139,7 +169,7 @@ mod tests {
         jpeg.extend_from_slice(&[1, 1, 0, 0, 1, 0, 1, 0, 0]); // JFIF header rest
         jpeg.extend_from_slice(&[0xFF, 0xD9]); // EOI
 
-        let xmp = b"<x:xmpmeta><rdf:RDF/></x:xmpmeta>";
+        let xmp = VALID_XMP;
         let result = append_xmp_to_jpeg(xmp, jpeg).expect("XMP embed should succeed");
 
         // Must still be a valid JPEG (starts with SOI)
@@ -157,7 +187,7 @@ mod tests {
         let mut naked = vec![0xFF, 0x0A];
         naked.extend_from_slice(&[0u8; 16]);
 
-        let xmp = b"<x:xmpmeta/>";
+        let xmp = VALID_XMP;
         let result = append_xmp_to_jxl(xmp, naked).expect("JXL XMP embed should succeed");
 
         assert_eq!(result.get(4..8), Some(b"JXL " as &[u8]));
@@ -181,7 +211,7 @@ mod tests {
         container.extend_from_slice(b"jxlc");
         container.extend_from_slice(&[0xFF, 0x0A, 0x00]);
 
-        let xmp = b"<x:xmpmeta/>";
+        let xmp = VALID_XMP;
         let result = append_xmp_to_jxl(xmp, container).expect("JXL XMP embed should succeed");
 
         let has_xml_box = result.windows(4).any(|w| w == b"xml ");
@@ -191,8 +221,23 @@ mod tests {
     #[test]
     fn test_append_xmp_to_jxl_invalid() {
         let bad = b"not a jxl file at all!!";
-        let result = append_xmp_to_jxl(b"xmp", bad.to_vec());
+        let result = append_xmp_to_jxl(VALID_XMP, bad.to_vec());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_malformed_xmp_is_rejected() {
+        // Not XML at all → every embed path must refuse to splice it in.
+        let avif = vec![0u8; 32];
+        assert!(matches!(
+            append_xmp_to_avif(b"not xmp", avif),
+            Err(XmpError::Invalid(_))
+        ));
+        // XML without an rdf:RDF element is not an XMP packet either.
+        assert!(matches!(
+            append_xmp_to_avif(b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>", vec![0u8; 8]),
+            Err(XmpError::Invalid(_))
+        ));
     }
 
     #[test]
@@ -200,7 +245,7 @@ mod tests {
         // `append_xmp_to_avif` only appends a trailing `xml ` box, so the
         // leading bytes need not form a real container for this unit test.
         let avif = vec![0u8; 32];
-        let xmp = b"<x:xmpmeta/>";
+        let xmp = VALID_XMP;
         let result = append_xmp_to_avif(xmp, avif).expect("AVIF XMP embed should succeed");
 
         let box_size = (8 + xmp.len()) as u32;
