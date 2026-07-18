@@ -6,6 +6,13 @@
 //! - SubIFD tree traversal
 //! - Value resolution (inline vs offset)
 
+// `RawIfdEntry`/`RawBigTiffIfdEntry` take an `is_little` import that every field
+// reads via `#[br(is_little = ...)]`, but binrw's generated `BinRead` impl
+// assigns the binding a placeholder before overwriting it. Rust 1.92 flags that
+// as `unused_assignments`. The lint fires inside the generated impl, which a
+// struct-level attribute does not reach, so it is allowed at module scope.
+#![allow(unused_assignments)]
+
 use binrw::{BinRead, BinReaderExt, binread};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
