@@ -3,12 +3,8 @@
 //! This module provides decoders for common non-RAW image formats that decode
 //! directly to RGB pixel data stored in an [`RgbImage`].
 
-// `Cursor` is used only by the reader-based backends (gif / tiff / image).
-#[cfg(any(
-    feature = "gif-decode",
-    feature = "tiff-decode",
-    feature = "avif-decode"
-))]
+// `Cursor` is used only by the reader-based backends (gif / tiff).
+#[cfg(any(feature = "gif-decode", feature = "tiff-decode"))]
 use std::io::Cursor;
 
 #[cfg(feature = "zune-runtime")]
@@ -645,29 +641,13 @@ fn decode_tiff(data: &[u8]) -> RawResult<RgbImage> {
 
 // ── AVIF ─────────────────────────────────────────────────────────────────────
 
+/// Decode an AVIF file: gamut-avif parses the container and drives the
+/// decode pipeline; the AV1 codestream is decoded by a rawshift-hwdec
+/// hardware decoder. Without one (no `hw` feature, or no usable backend on
+/// this machine) this returns [`RawError::HwDecoderUnavailable`].
 #[cfg(feature = "avif-decode")]
 fn decode_avif(data: &[u8]) -> RawResult<RgbImage> {
-    use image::DynamicImage;
-    use image::codecs::avif::AvifDecoder;
-
-    let decoder = AvifDecoder::new(Cursor::new(data)).map_err(|e| {
-        RawError::Format(FormatError::ImageDecode {
-            format: "AVIF",
-            message: format!("{e}"),
-        })
-    })?;
-
-    let img = DynamicImage::from_decoder(decoder).map_err(|e| {
-        RawError::Format(FormatError::ImageDecode {
-            format: "AVIF",
-            message: format!("{e}"),
-        })
-    })?;
-
-    let rgb = img.into_rgb16();
-    let w = rgb.width();
-    let h = rgb.height();
-    RgbImage::new(w, h, rgb.into_raw())
+    crate::formats::avif::AvifFile::open(data.to_vec())?.decode_primary()
 }
 
 #[cfg(not(feature = "avif-decode"))]
@@ -892,7 +872,7 @@ empty_decode_config!(LibwebpDecodeConfig, "libwebp");
 empty_decode_config!(JxlDecodeConfig, "gamut-jxl");
 empty_decode_config!(GifDecodeConfig, "gif");
 empty_decode_config!(TiffDecodeConfig, "tiff");
-empty_decode_config!(ImageAvifDecodeConfig, "image (avif-native)");
+empty_decode_config!(AvifDecodeConfig, "gamut-avif + rawshift-hwdec");
 empty_decode_config!(HeicDecodeConfig, "gamut-heic + rawshift-hwdec");
 empty_decode_config!(ZunePpmDecodeConfig, "zune-ppm");
 
@@ -931,9 +911,10 @@ pub enum DecodeOptions {
     /// TIFF via the `tiff` crate.
     #[cfg(feature = "tiff-decode")]
     Tiff(TiffDecodeConfig),
-    /// AVIF via `image` (`avif-native`).
+    /// AVIF via `gamut-avif` (container/pipeline) + `rawshift-hwdec`
+    /// (hardware AV1 codestream decode).
     #[cfg(feature = "avif-decode")]
-    AvifImage(ImageAvifDecodeConfig),
+    Avif(AvifDecodeConfig),
     /// HEIC/HEIF via `gamut-heic` (container/pipeline) + `rawshift-hwdec`
     /// (hardware HEVC codestream decode).
     #[cfg(feature = "heic-decode")]
@@ -963,7 +944,7 @@ impl DecodeOptions {
             #[cfg(feature = "tiff-decode")]
             DecodeOptions::Tiff(_) => StandardFormat::Tiff,
             #[cfg(feature = "avif-decode")]
-            DecodeOptions::AvifImage(_) => StandardFormat::Avif,
+            DecodeOptions::Avif(_) => StandardFormat::Avif,
             #[cfg(feature = "heic-decode")]
             DecodeOptions::Heic(_) => StandardFormat::Heic,
             #[cfg(feature = "svg-decode")]
@@ -993,7 +974,7 @@ impl DecodeOptions {
             #[cfg(feature = "tiff-decode")]
             DecodeOptions::Tiff(_) => CodecId::new("tiff/tiff"),
             #[cfg(feature = "avif-decode")]
-            DecodeOptions::AvifImage(_) => CodecId::new("avif/image"),
+            DecodeOptions::Avif(_) => CodecId::new("avif/gamut"),
             #[cfg(feature = "heic-decode")]
             DecodeOptions::Heic(_) => CodecId::new("heic/gamut"),
             #[cfg(feature = "svg-decode")]
@@ -1026,9 +1007,7 @@ impl DecodeOptions {
             #[cfg(feature = "tiff-decode")]
             StandardFormat::Tiff => Some(DecodeOptions::Tiff(TiffDecodeConfig::default())),
             #[cfg(feature = "avif-decode")]
-            StandardFormat::Avif => {
-                Some(DecodeOptions::AvifImage(ImageAvifDecodeConfig::default()))
-            }
+            StandardFormat::Avif => Some(DecodeOptions::Avif(AvifDecodeConfig::default())),
             #[cfg(feature = "heic-decode")]
             StandardFormat::Heic => Some(DecodeOptions::Heic(HeicDecodeConfig::default())),
             #[cfg(feature = "svg-decode")]
@@ -1111,7 +1090,7 @@ pub fn decode_standard_image_with(data: &[u8], options: &DecodeOptions) -> RawRe
         #[cfg(feature = "tiff-decode")]
         DecodeOptions::Tiff(_cfg) => decode_tiff(data),
         #[cfg(feature = "avif-decode")]
-        DecodeOptions::AvifImage(_cfg) => decode_avif(data),
+        DecodeOptions::Avif(_cfg) => decode_avif(data),
         #[cfg(feature = "heic-decode")]
         DecodeOptions::Heic(_cfg) => decode_heic(data),
         #[cfg(feature = "svg-decode")]
@@ -1541,7 +1520,7 @@ mod probe_tests {
 /// | JPEG   | APP1 EXIF + APP1 XMP + APP2 ICC segments (requires `jpeg`) |
 /// | TIFF   | IFD0 EXIF tags |
 /// | WebP   | EXIF chunk |
-/// | AVIF   | HEIF/ISOBMFF Exif item |
+/// | AVIF   | gamut-avif Exif + ICC + XMP items (requires `avif-decode`) |
 /// | PNG    | eXIf + iCCP + XMP iTXt chunks (requires `png`) |
 /// | HEIC   | HEIF Exif + ICC + XMP items (requires the `heic` feature) |
 /// | GIF / JXL / SVG / APV | returns empty metadata |
@@ -1561,6 +1540,13 @@ pub fn read_standard_image_metadata(
         return crate::formats::heic::read_heic_metadata(data);
     }
 
+    // AVIF likewise goes through gamut-avif's item surface (pure container
+    // work — no hardware decoder involved).
+    #[cfg(feature = "avif-decode")]
+    if format == StandardFormat::Avif {
+        return crate::formats::avif::read_avif_metadata(data);
+    }
+
     // JPEG goes through gamut-jpeg's APP-segment reader (no pixel decoding) so
     // that ICC and XMP are extracted alongside EXIF.
     #[cfg(any(feature = "jpeg-decode", feature = "jpeg-encode"))]
@@ -1578,9 +1564,8 @@ pub fn read_standard_image_metadata(
     let container = match format {
         StandardFormat::Tiff => ExifContainer::Tiff,
         StandardFormat::WebP => ExifContainer::WebP,
-        StandardFormat::Avif => ExifContainer::Avif,
         // Formats without an EXIF extraction path (GIF, SVG, JXL, …), plus
-        // JPEG/PNG when no feature compiled the gamut metadata reader in.
+        // JPEG/PNG/AVIF when no feature compiled the gamut metadata reader in.
         _ => return crate::core::metadata::ImageMetadata::default(),
     };
 

@@ -603,16 +603,51 @@ mod avif_tests {
         }
     }
 
-    /// Strongest proof the AV1 bitstream + container are valid: decode it back.
+    /// Strongest in-scope proof the AV1 bitstream + container are valid:
+    /// parse it back through gamut-avif (backend-less container + metadata
+    /// surface, which validates the primary item and its av1C), then attempt
+    /// pixel decode. rawshift's lossless output is identity 4:4:4 — AV1
+    /// **Profile 1** — while today's hardware backends decode Profile 0 only
+    /// (docs/SUPPORT.md), so the pixel step is asserted adaptively: real
+    /// pixels where the machine's decoder covers Profile 1, and the honest,
+    /// matchable scope error (or `HwDecoderUnavailable` with no decoder at
+    /// all) elsewhere. The dedicated hardware end-to-end suite lives in
+    /// `tests/avif_hw_decode.rs`.
     #[cfg(feature = "avif-decode")]
     #[test]
     fn round_trips_through_decoder() {
-        use rawshift_image::formats::{StandardFormat, decode_standard_image};
+        use rawshift_image::core::{MetadataNamespace, MetadataValue};
+        use rawshift_image::error::RawError;
+        use rawshift_image::formats::{AvifFile, StandardFormat, decode_standard_image};
         let img = synthetic_image();
         let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &avif(false, false))
             .expect("AVIF encode");
-        let decoded = decode_standard_image(&data, StandardFormat::Avif).expect("decode AVIF");
-        assert_eq!((decoded.width(), decoded.height()), (4, 4));
+
+        let file = AvifFile::open(data.clone()).expect("parse back rawshift's own AVIF");
+        let md = file.metadata();
+        assert_eq!(
+            md.get(MetadataNamespace::Avif, "width"),
+            Some(&MetadataValue::U64(4))
+        );
+        assert_eq!(
+            md.get(MetadataNamespace::Avif, "height"),
+            Some(&MetadataValue::U64(4))
+        );
+        assert_eq!(md.image.bit_depth, 8);
+
+        match decode_standard_image(&data, StandardFormat::Avif) {
+            Ok(decoded) => assert_eq!((decoded.width(), decoded.height()), (4, 4)),
+            Err(RawError::HwDecoderUnavailable { codec: "AV1", .. }) => {}
+            Err(err @ RawError::Format(_)) => {
+                let msg = err.to_string();
+                assert!(
+                    msg.to_lowercase().contains("profile"),
+                    "a hardware decoder rejecting rawshift's Profile 1 output must \
+                     name its profile scope, got: {msg}"
+                );
+            }
+            Err(other) => panic!("unexpected AVIF decode error: {other}"),
+        }
     }
 
     #[test]

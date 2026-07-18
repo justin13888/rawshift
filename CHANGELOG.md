@@ -18,6 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- *(image)* **breaking**: AVIF decode migrated to gamut-avif + rawshift-hwdec
+  hardware AV1 (#33), replacing the `image` crate's dav1d-backed avif-native
+  decoder — the `image` dependency and the `avif-decode-image` tier-4 feature
+  are gone (`avif-decode` now pulls gamut-avif directly, mirroring HEIC), and
+  CI no longer installs libdav1d-dev. `DecodeOptions::AvifImage(ImageAvifDecodeConfig)`
+  becomes `DecodeOptions::Avif(AvifDecodeConfig)` (codec id `avif/image` →
+  `avif/gamut`). New `AvifFile` API (open / metadata / aux enumeration /
+  decode, mirroring `HeicFile`) plus `avif_hw_decode_available()`. Container,
+  metadata (EXIF/XMP/ICC now read from the container items via gamut-avif,
+  with new `MetadataNamespace::Avif` container facts), and auxiliary
+  enumeration are backend-less; pixel decode needs a hardware AV1 decoder
+  (`hw`/`hw-*`, AV1 Profile 0) and reports `RawError::HwDecoderUnavailable`
+  without one — software fallback is post-v1 (gamut#259). 10/12-bit AVIFs
+  hardware-decode but their RGBA presentation is pending upstream
+  (gamut#303) and reports `RawError::Format`. `ExifContainer::Avif` was
+  removed with the old box-scanning read path (the `insert_item` write path
+  splicing EXIF/ICC/XMP into encoded AVIFs stays until gamut-avif encode
+  attaches metadata upstream).
 - *(image)* **breaking**: PNG decode migrated to gamut-png (pure Rust; every
   colour type and bit depth, incl. Adam7 interlace and 16-bit sources decoded
   natively). `DecodeOptions::PngZune(ZunePngDecodeConfig)` becomes

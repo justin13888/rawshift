@@ -44,10 +44,14 @@ gamut-metadata = { workspace = true, optional = true }
 # guards) and encode (PngEncoder: 8/16-bit RGB, DEFLATE level + filter
 # strategy + lossless auto-reduce, and eXIf/iCCP/XMP-iTXt chunk embedding).
 gamut-png      = { workspace = true, optional = true }
-# gamut-avif backs AVIF encode (AvifEncoder: 8-bit RGB, lossless or lossy AV1
-# intra at identity 4:4:4 — pure Rust, no C toolchain). 10/12-bit and alpha
-# encode are pending upstream (justin13888/gamut#251). AVIF decode stays on
-# the `image` crate until #33.
+# gamut-avif backs both AVIF halves. Encode: AvifEncoder (8-bit RGB, lossless
+# or lossy AV1 intra at identity 4:4:4 — pure Rust, no C toolchain); 10/12-bit
+# and alpha encode are pending upstream (justin13888/gamut#251). Decode:
+# container parsing, item/metadata enumeration, grid/iden/iovl derivation,
+# colour conversion, alpha merge, and the clap/irot/imir transforms. The AV1
+# codestream itself is decoded through the pluggable Av1StillDecoder seam,
+# which rawshift plugs with a rawshift-hwdec hardware decoder (the `hw`
+# feature). Container and metadata paths work with no hardware backend at all.
 gamut-avif     = { workspace = true, optional = true }
 gamut-xmp      = { workspace = true, optional = true }
 # gamut-jpeg backs JPEG decode (baseline + progressive, grayscale/YCbCr/RGB/
@@ -62,13 +66,14 @@ gamut-jpeg     = { workspace = true, optional = true }
 # hardware decoder (the `hw` feature). Container and metadata paths work with
 # no hardware backend at all.
 gamut-heic     = { workspace = true, optional = true }
-# gamut-isobmff surfaces in gamut-heic's public API (`HeifItem::colour()`
-# returns its `ColourInformation`), so the HEIC ICC-extraction path needs the
-# crate directly. Same pinned gamut revision as everything else.
+# gamut-isobmff surfaces in gamut-heic's and gamut-avif's public APIs
+# (`HeifItem::colour()` / `AvifItem::colour()` return its `ColourInformation`),
+# so the HEIC/AVIF ICC-extraction paths need the crate directly. Same pinned
+# gamut revision as everything else.
 gamut-isobmff  = { workspace = true, optional = true }
 # rawshift-hwdec provides hardware HEVC/AV1 still-frame decode. Optional and
-# pulled only by the `hw`/`hw-*` features: a `heic`-only build is a valid
-# container/metadata-only configuration whose pixel decode reports
+# pulled only by the `hw`/`hw-*` features: a `heic`- or `avif`-only build is a
+# valid container/metadata-only configuration whose pixel decode reports
 # `RawError::HwDecoderUnavailable`.
 rawshift-hwdec = { workspace = true, optional = true }
 # gamut-jxl backs JPEG XL decode (a pure-Rust jxl-rs wrapper — no C toolchain)
@@ -78,7 +83,6 @@ rawshift-hwdec = { workspace = true, optional = true }
 gamut-jxl      = { workspace = true, optional = true }
 libwebp-sys    = { version = "0.14",   optional = true }
 rayon          = { workspace = true }
-image          = { version = "0.25", default-features = false, features = ["avif-native"], optional = true }
 resvg          = { version = "0.44",   optional = true }
 serde          = { workspace = true, optional = true }
 thiserror      = { workspace = true }
@@ -98,10 +102,10 @@ gamut-ifd = { workspace = true, features = ["bigtiff"] }
 # export_format_tests reads back the ICC profile gamut-jxl embeds in the JXL
 # codestream (`JxlDecoder::embedded_icc_profile`) — a box-scan cannot see it.
 gamut-jxl = { workspace = true, features = ["decode"] }
-# heic tests construct synthetic HEIF containers (gamut-isobmff `write`) so the
-# backend-less enumeration/metadata/decode-pipeline paths always run, with or
-# without an on-disk fixture; gamut-color's ycbcr module supplies the expected
-# values for the YCbCr→RGB conversion assertions.
+# heic/avif tests construct synthetic HEIF/AVIF containers (gamut-isobmff
+# `write`) so the backend-less enumeration/metadata/decode-pipeline paths
+# always run, with or without an on-disk fixture; gamut-color's ycbcr module
+# supplies the expected values for the YCbCr→RGB conversion assertions.
 gamut-isobmff = { workspace = true }
 gamut-color = { workspace = true }
 serde = { workspace = true }
@@ -122,8 +126,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #
 # Only tier-4 features (plus RAW tier-3 features and the gamut-backed
 # `jpeg-decode` / `jpeg-encode` / `png-decode` / `png-encode` / `jxl-decode` /
-# `jxl-encode` / `avif-encode`, which have a single implementation) reference
-# `dep:*`.
+# `jxl-encode` / `avif-decode` / `avif-encode` / `heic-decode`, which have a
+# single implementation) reference `dep:*`.
 default = ["jpeg", "png", "webp", "jxl-decode", "gif-decode", "tiff-decode", "ppm-decode"]
 
 # ── Tier 1: bundle features ───────────────────────────────────────────────────
@@ -187,7 +191,16 @@ jxl-decode  = ["dep:gamut-jxl", "gamut-jxl/decode"]
 jxl-encode  = ["dep:gamut-jxl", "gamut-jxl/encode", "exif"]
 gif-decode  = ["gif-decode-gif"]
 tiff-decode = ["tiff-decode-tiff"]
-avif-decode = ["avif-decode-image"]
+# AVIF decode is backed directly by gamut-avif (no tier-4 layer): container
+# parsing, metadata, and auxiliary-image enumeration always work; pixel decode
+# additionally needs a hardware AV1 decoder (`hw`/`hw-*`, see below) and
+# reports `RawError::HwDecoderUnavailable` without one. 10/12-bit content
+# hardware-decodes but its RGBA presentation is pending upstream
+# (justin13888/gamut#303); software AV1 decode is post-v1
+# (justin13888/gamut#259). `exif` supplies the parser for the container's
+# Exif item; `gamut-isobmff` surfaces in the ICC-extraction path
+# (`AvifItem::colour()`).
+avif-decode = ["dep:gamut-avif", "dep:gamut-isobmff", "exif"]
 # AVIF encode is backed directly by gamut-avif (no tier-4 layer): like
 # PNG and the RAW direction features, it has a single gamut-backed
 # implementation, so the format-direction feature itself pulls the dependency.
@@ -230,7 +243,6 @@ webp-decode-libwebp  = ["webp-decode", "dep:libwebp-sys", "exif"]
 webp-encode-libwebp  = ["webp-encode", "dep:libwebp-sys", "exif"]
 gif-decode-gif       = ["gif-decode", "dep:gif"]
 tiff-decode-tiff     = ["tiff-decode", "dep:tiff", "exif"]
-avif-decode-image    = ["avif-decode", "dep:image", "exif"]
 svg-decode-resvg     = ["svg-decode", "dep:resvg"]
 ppm-decode-zune      = ["ppm-decode", "dep:zune-ppm", "zune-runtime"]
 
@@ -248,15 +260,15 @@ zune-runtime  = ["dep:zune-core"]
 # Pulled by format impl features that parse embedded EXIF on decode or write it
 # on encode.
 exif          = ["dep:gamut-exif", "dep:gamut-metadata", "dep:gamut-xmp"]
-# Hardware still-frame decode (HEVC for HEIC; AV1 for AVIF once gamut-avif
-# exposes the container handoff). These are **verified** feature flags — see
-# docs/SUPPORT.md for the permanent target/API matrix:
+# Hardware still-frame decode (HEVC for HEIC; AV1 for AVIF). These are
+# **verified** feature flags — see docs/SUPPORT.md for the permanent
+# target/API matrix:
 #   `hw`   — portable; selects the native backend for the compile target
 #            (build-script warning + no-backend stub on targets with no
 #            hardware decode API).
 #   `hw-*` — pin one explicit backend; `compile_error!` on any other target.
-# Without any of them, `heic` is a valid container/metadata-only build whose
-# pixel decode returns `RawError::HwDecoderUnavailable`.
+# Without any of them, `heic`/`avif` are valid container/metadata-only builds
+# whose pixel decode returns `RawError::HwDecoderUnavailable`.
 hw              = ["dep:rawshift-hwdec", "rawshift-hwdec/hw"]
 hw-videotoolbox = ["hw", "rawshift-hwdec/videotoolbox"]
 hw-vaapi        = ["hw", "rawshift-hwdec/vaapi"]
@@ -289,6 +301,10 @@ required-features = ["experimental"]
 [[example]]
 name = "heic_inspect"
 required-features = ["heic"]
+
+[[example]]
+name = "avif_inspect"
+required-features = ["avif-decode"]
 
 [[test]]
 name = "raw_decode_fixtures"

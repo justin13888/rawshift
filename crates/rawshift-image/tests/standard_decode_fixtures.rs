@@ -249,10 +249,52 @@ fn decode_svg_dimensions_from_file() {
     assert_decode_dimensions("svg", StandardFormat::Svg);
 }
 
+/// AVIF pixel decode is hardware-only (gamut-avif container + rawshift-hwdec
+/// AV1, #33) and the fixture is rawshift's own lossless output — identity
+/// 4:4:4, AV1 **Profile 1** — while today's hardware backends decode
+/// Profile 0 only. So the pixel step is asserted adaptively: real dimensions
+/// where the machine's decoder covers Profile 1, and the honest, matchable
+/// error otherwise (`HwDecoderUnavailable` with no decoder; the backend's
+/// profile-scope `Format` error with a Profile-0-only one). Hardware
+/// Profile 0 end-to-end pixel assertions live in `tests/avif_hw_decode.rs`.
+#[cfg(feature = "avif")]
+fn assert_avif_fixture_decode(gt: &StandardGroundTruth, data: &[u8]) {
+    use rawshift_image::error::RawError;
+    match decode_standard_image(data, StandardFormat::Avif) {
+        Ok(img) => {
+            assert_eq!((img.width(), img.height()), (gt.width, gt.height));
+            assert_eq!(
+                img.data().len(),
+                (gt.width * gt.height * gt.channels) as usize
+            );
+        }
+        Err(RawError::HwDecoderUnavailable { codec: "AV1", .. }) => {
+            eprintln!("AVIF fixture pixel decode unavailable: no hardware AV1 decoder");
+        }
+        Err(err @ RawError::Format(_)) => {
+            let msg = err.to_string();
+            assert!(
+                msg.to_lowercase().contains("profile"),
+                "a hardware decoder rejecting the Profile 1 fixture must name \
+                 its profile scope, got: {msg}"
+            );
+            eprintln!("AVIF fixture pixel decode outside hardware scope: {msg}");
+        }
+        Err(other) => panic!("unexpected AVIF fixture decode error: {other}"),
+    }
+}
+
 #[cfg(feature = "avif")]
 #[test]
 fn decode_avif_dimensions_from_file() {
-    assert_decode_dimensions("avif", StandardFormat::Avif);
+    let gt = match load_standard_ground_truth("avif") {
+        Some(gt) => gt,
+        None => return,
+    };
+    let path = test_data_path(&format!("avif/{}", gt.file_name));
+    skip_if_missing!(path);
+    let data = std::fs::read(&path).unwrap();
+    assert_avif_fixture_decode(&gt, &data);
 }
 
 #[cfg(feature = "heic")]
@@ -324,7 +366,21 @@ fn detect_then_decode_svg_from_file() {
 #[cfg(feature = "avif")]
 #[test]
 fn detect_then_decode_avif_from_file() {
-    assert_detect_then_decode("avif", StandardFormat::Avif);
+    let gt = match load_standard_ground_truth("avif") {
+        Some(gt) => gt,
+        None => return,
+    };
+    let path = test_data_path(&format!("avif/{}", gt.file_name));
+    skip_if_missing!(path);
+    let data = std::fs::read(&path).unwrap();
+    assert_eq!(
+        detect_standard_format(&data),
+        Some(StandardFormat::Avif),
+        "AVIF: detection should match expected format"
+    );
+    // Pixel decode is adaptive to the machine's hardware AV1 scope — see
+    // `assert_avif_fixture_decode`.
+    assert_avif_fixture_decode(&gt, &data);
 }
 
 #[cfg(feature = "heic")]

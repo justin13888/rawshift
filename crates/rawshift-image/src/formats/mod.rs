@@ -5,6 +5,8 @@
 
 #[cfg(feature = "arw-decode")]
 pub(crate) mod arw;
+#[cfg(feature = "avif-decode")]
+pub(crate) mod avif;
 #[cfg(feature = "cr2-decode")]
 pub(crate) mod cr2;
 #[cfg(feature = "cr3-decode")]
@@ -19,6 +21,9 @@ mod encode;
 pub mod export;
 #[cfg(feature = "heic-decode")]
 pub(crate) mod heic;
+// Plane-lifting helpers shared by the HEIC and AVIF hardware adapters.
+#[cfg(all(feature = "hw", any(feature = "heic-decode", feature = "avif-decode")))]
+pub(crate) mod hw_planes;
 #[cfg(feature = "ifd-parser")]
 pub(crate) mod ifd;
 #[cfg(feature = "nef-decode")]
@@ -28,6 +33,8 @@ pub(crate) mod raf;
 pub mod registry;
 pub(crate) mod standard;
 
+#[cfg(feature = "avif-decode")]
+pub use avif::{AvifAuxImage, AvifAuxKind, AvifFile, avif_hw_decode_available};
 #[cfg(feature = "dng-encode")]
 pub use dng_export::{DngEncodeConfig, export_dng};
 pub use encode::{encode_rgb_image, encode_rgb_image_to_vec, encode_rgb_image_to_writer};
@@ -35,7 +42,7 @@ pub use encode::{encode_rgb_image, encode_rgb_image_to_vec, encode_rgb_image_to_
 pub use heic::{HeicAuxImage, HeicAuxKind, HeicFile, heic_hw_decode_available};
 pub use registry::{available_decoders, available_encoders};
 pub use standard::{
-    DecodeOptions, GifDecodeConfig, HeicDecodeConfig, ImageAvifDecodeConfig, ImageProbe,
+    AvifDecodeConfig, DecodeOptions, GifDecodeConfig, HeicDecodeConfig, ImageProbe,
     JpegDecodeConfig, JxlDecodeConfig, LibwebpDecodeConfig, PngDecodeConfig, ResvgDecodeConfig,
     StandardFormat, TiffDecodeConfig, ZunePpmDecodeConfig, decode_standard_image,
     decode_standard_image_with, detect_standard_format, probe_standard_image,

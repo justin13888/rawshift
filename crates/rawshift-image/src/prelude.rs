@@ -51,7 +51,7 @@ pub use crate::formats::export::{
 };
 // formats — decoders, format detection, encode/decode entry points
 pub use crate::formats::{
-    DecodeOptions, GifDecodeConfig, HeicDecodeConfig, ImageAvifDecodeConfig, ImageProbe,
+    AvifDecodeConfig, DecodeOptions, GifDecodeConfig, HeicDecodeConfig, ImageProbe,
     JpegDecodeConfig, JxlDecodeConfig, LibwebpDecodeConfig, PngDecodeConfig, ResvgDecodeConfig,
     StandardFormat, TiffDecodeConfig, available_decoders, available_encoders,
     decode_standard_image, decode_standard_image_with, detect_standard_format, encode_rgb_image,
@@ -61,6 +61,9 @@ pub use crate::formats::{
 
 #[cfg(any_raw)]
 pub use crate::formats::{RawFile, RawFormat};
+
+#[cfg(feature = "avif-decode")]
+pub use crate::formats::{AvifAuxImage, AvifAuxKind, AvifFile, avif_hw_decode_available};
 
 #[cfg(feature = "heic-decode")]
 pub use crate::formats::{HeicAuxImage, HeicAuxKind, HeicFile, heic_hw_decode_available};

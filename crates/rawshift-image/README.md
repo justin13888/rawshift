@@ -27,7 +27,7 @@ or an explicit hardware-decode backend pin (`hw-*`).
 | GIF          | [gif](https://github.com/image-rs/image-gif) (Stable)                                    | Not planned                                                                                      |                                           |
 | TIFF         | [tiff](https://github.com/image-rs/image-tiff) (Stable)                                  | Not planned                                                                                      |                                           |
 | JXL          | [gamut-jxl](https://github.com/justin13888/gamut) (Stable)                               | [gamut-jxl](https://github.com/justin13888/gamut) (Stable)                                       | Decode is pure Rust (jxl-rs); encode wraps the reference libjxl, cmake-built and statically linked by gamut-jxl-sys. |
-| AVIF         | [image/avif-native](https://github.com/image-rs/image) (Functional)                      | [gamut-avif](https://github.com/justin13888/gamut) (Functional)                                  | Encode via gamut (pure Rust; 8-bit RGB, lossless/lossy AV1 intra, 4:4:4). 10/12-bit encode temporarily unavailable, pending [gamut#251](https://github.com/justin13888/gamut/issues/251). |
+| AVIF         | [gamut-avif](https://github.com/justin13888/gamut) container/pipeline + [rawshift-hwdec](../rawshift-hwdec) hardware AV1 (Functional) | [gamut-avif](https://github.com/justin13888/gamut) (Functional)                                  | Decode: container, metadata, and auxiliary enumeration always work; pixel decode needs a hardware AV1 backend (`hw`/`hw-*`, AV1 Profile 0) and reports `HwDecoderUnavailable` without one — software fallback is post-v1 ([gamut#259](https://github.com/justin13888/gamut/issues/259)); 10/12-bit presentation pending [gamut#303](https://github.com/justin13888/gamut/issues/303). Encode via gamut (pure Rust; 8-bit RGB, lossless/lossy AV1 intra, 4:4:4). 10/12-bit encode temporarily unavailable, pending [gamut#251](https://github.com/justin13888/gamut/issues/251). |
 | HEIC         | [gamut-heic](https://github.com/justin13888/gamut) container/pipeline + [rawshift-hwdec](../rawshift-hwdec) hardware HEVC (Functional) | Not planned                                                                                      | Requires `heic` feature. Container, metadata, and auxiliary enumeration always work; pixel decode needs a hardware HEVC backend (`hw`/`hw-*`) and reports `HwDecoderUnavailable` without one. |
 | SVG          | [resvg/tiny-skia](https://github.com/linebender/resvg) (Functional)                      | Not planned                                                                                      |                                           |
 | PPM          | [zune-ppm](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-ppm) (Functional) | Not planned                                                                                    | Netpbm family: P5, P6, P7, PFM.           |
@@ -47,7 +47,8 @@ Cargo features are organised in five tiers, from high-level bundles down to
 individual library bindings. Each tier is defined purely in terms of the tier
 below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
 `jpeg-decode` / `jpeg-encode` / `png-decode` / `png-encode` / `jxl-decode` /
-`jxl-encode` / `avif-encode`) pull in an external crate.
+`jxl-encode` / `avif-decode` / `avif-encode` / `heic-decode`) pull in an
+external crate.
 
 1. **Bundle features** — coarse, ready-made groupings.
    - `default` — `jpeg`, `png`, `webp`, `jxl-decode`, `gif-decode`, `tiff-decode`, `ppm-decode`.
@@ -68,7 +69,8 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
      implementation**.
      This is where the per-format default is defined. Exception: `jpeg-decode`,
      `jpeg-encode`, `png-decode`, `png-encode`, `jxl-decode`, `jxl-encode`,
-     `avif-encode`, and `heic-decode` each have a single gamut-backed implementation
+     `avif-decode`, `avif-encode`, and `heic-decode` each have a single
+     gamut-backed implementation
      (`gamut-jpeg` / `gamut-png` / `gamut-jxl` / `gamut-avif` / `gamut-heic`)
      and pull it directly, with no tier-4 layer
      below them. (`jxl-encode` wraps the
@@ -76,7 +78,9 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
      — it needs cmake and a C++ toolchain. `avif-encode` is pure Rust: 8-bit
      RGB, lossless or lossy AV1 intra; 10/12-bit AVIF encode is temporarily
      unavailable, pending
-     [gamut#251](https://github.com/justin13888/gamut/issues/251).)
+     [gamut#251](https://github.com/justin13888/gamut/issues/251).
+     `avif-decode` is container/metadata pure Rust; its pixel decode needs a
+     hardware AV1 backend — see the `hw` flags under tier 5.)
    - RAW formats: `arw-decode`, `cr2-decode`, `cr3-decode`, `crw-decode`,
      `dng-decode`, `dng-encode`, `nef-decode`, `raf-decode` — RAW formats have a
      single in-repo implementation, so there is no tier-4 layer below them.
@@ -87,7 +91,6 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
    at the API level via `DecodeOptions` / `EncodeOptions`.
    - `webp-decode-libwebp`, `webp-encode-libwebp`
    - `gif-decode-gif`, `tiff-decode-tiff`
-   - `avif-decode-image`
    - `svg-decode-resvg`
    - `ppm-decode-zune`
 5. **Infrastructure / linking features** — cross-cutting, not tied to one format.
@@ -103,8 +106,9 @@ below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
      get a build warning and the no-backend stub.
    - `hw-videotoolbox` / `hw-vaapi` / `hw-mediacodec` — pin one explicit
      backend; **`compile_error!` on any other target** (verified feature
-     flags). Without any `hw` flag, `heic` is a valid container/metadata-only
-     build whose pixel decode returns `RawError::HwDecoderUnavailable`.
+     flags). Without any `hw` flag, `heic` and `avif` are valid
+     container/metadata-only builds whose pixel decode returns
+     `RawError::HwDecoderUnavailable`.
 
    The `zune-runtime` / `exif` features are pulled in automatically by the
    format implementations that need them — they exist so that a minimal

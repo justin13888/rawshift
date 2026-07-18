@@ -67,17 +67,17 @@ jobs:
         with:
           toolchain: "1.92.0"
       - uses: Swatinem/rust-cache@v2
-      # `rawshift-image/full` enables `avif` (decode links system dav1d via the
-      # `image` crate; encode is pure-Rust gamut-avif), `heic` (pure-Rust
+      # `rawshift-image/full` enables `avif` and `heic` (pure-Rust gamut-avif /
       # gamut-heic container/pipeline — no system library; pixel decode goes
-      # through rawshift-hwdec, which `full`'s `hw` flag compiles as the
-      # no-backend stub until the platform backends land), and `jxl-encode`
+      # through rawshift-hwdec via `full`'s `hw` flag, and the AVIF/HEIC
+      # hardware tests skip gracefully on GPU-less runners) and `jxl-encode`
       # (builds libjxl hermetically through gamut-jxl-sys — cmake + clang for
-      # its bindings).
+      # its bindings). libdav1d-dev is no longer needed: the `image` crate's
+      # avif-native decoder (its consumer) left with #33.
       - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libdav1d-dev cmake clang libclang-dev
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev
       - name: Fetch test fixtures
         run: bash scripts/fetch_test_fixtures.sh
         env:

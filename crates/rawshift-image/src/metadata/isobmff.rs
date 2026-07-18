@@ -155,8 +155,13 @@ struct IlocInfo {
 #[cfg(feature = "exif")]
 struct IlocEntry {
     item_id: u32,
+    // `construction_method` and `extents` are consumed only by the test-only
+    // `extract_item` oracle (production reads moved to gamut-avif in #33);
+    // `insert_item` reads `item_id` alone.
+    #[cfg_attr(not(test), allow(dead_code))]
     construction_method: u16,
     /// `(absolute offset, length)` pairs (base offset already applied).
+    #[cfg_attr(not(test), allow(dead_code))]
     extents: Vec<(u64, u64)>,
 }
 
@@ -300,7 +305,11 @@ fn infe_boxes(data: &[u8], iinf_start: usize) -> impl Iterator<Item = (usize, us
 
 /// Extract the payload bytes of the first item of `item_type`, or `None` if
 /// the container/item is absent or malformed.
-#[cfg(feature = "exif")]
+///
+/// Production AVIF reads go through gamut-avif's item surface
+/// (`formats::avif`) since #33; this reader is kept as the independent oracle
+/// the [`insert_item`] tests verify the write path against.
+#[cfg(test)]
 pub(crate) fn extract_item(data: &[u8], item_type: [u8; 4]) -> Option<Vec<u8>> {
     let meta_start = find_box(data, 0, data.len(), b"meta")?;
     let meta_end = meta_start + read_u32_be(data, meta_start) as usize;

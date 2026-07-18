@@ -122,10 +122,16 @@ pub fn available_decoders() -> Vec<CodecInfo> {
         "0.11",
         CodecDirection::Decode,
     ));
+    // Version tracks the gamut-avif crate at the pinned gamut commit (git
+    // dependency). Hand-maintained — bump together with the gamut pin. The
+    // entry reports the container/pipeline decoder, which is always compiled
+    // with `avif-decode`; whether the AV1 codestream can actually be decoded
+    // on this machine is runtime-conditional — probe it with
+    // `formats::avif_hw_decode_available()`.
     #[cfg(feature = "avif-decode")]
     decoders.push(CodecInfo::new(
-        CodecId::new("avif/image"),
-        "0.25",
+        CodecId::new("avif/gamut"),
+        "1.0",
         CodecDirection::Decode,
     ));
     // Version tracks the gamut-heic crate at the pinned gamut commit (git
