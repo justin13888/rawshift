@@ -126,6 +126,22 @@ them here would duplicate state that drifts. See each crate's README:
 
 The minimum supported Rust version (MSRV) tracks the minimum required by our upstream dependencies (currently **1.92.0**, set by [gamut](https://github.com/justin13888/gamut)) and will remain as low as the upstream dependencies require — it is never raised independently.
 
+## Upstream dependency: gamut
+
+rawshift consumes [gamut](https://github.com/justin13888/gamut) for image primitives, color, metadata, container parsing, and codecs. It is a git dependency pinned to an **exact commit hash** in the workspace `Cargo.toml` — never a branch, never crates.io (until gamut publishes). See [AGENTS.md](AGENTS.md) for the upstream-first policy that governs when rawshift may change in response to a gamut gap.
+
+### Bumping the gamut pin
+
+The pin is load-bearing: it is the single point where upstream behaviour enters rawshift. Bumping it is a deliberate, reviewed change, not a drive-by edit.
+
+1. **One commit, one concern.** The commit updates only the `rev` hash in `[workspace.dependencies]` (plus `Cargo.lock`). No code changes ride along — migrations that *depend* on the bump land in follow-up commits or a separate PR.
+2. **Confirm the gate landed.** Every gamut issue that blocked rawshift work must be closed and merged to gamut `master`, and the new hash must contain it.
+3. **Full test run.** `cargo test --workspace --all-features` must pass, including fixture-driven tests.
+4. **Full benchmark run.** Run the criterion benches (`decode`, `demosaic`, `pipeline`) against the pre-bump baseline. Unexplained regressions block the bump.
+5. **CHANGELOG note.** Any behavioural change — decoder output bytes, error variants, metadata round-trip fidelity — gets a `CHANGELOG.md` entry. A pure no-op bump is recorded as such.
+
+Crates are added to `[workspace.dependencies]` **lazily**, as each migration issue starts consuming one, so the dependency list stays an accurate record of what rawshift actually uses.
+
 ## Development
 
 It is important that development velocity is maintained regardless of project complexity. Unit tests for all contributions are expected, especially for platform-specific behaviours!

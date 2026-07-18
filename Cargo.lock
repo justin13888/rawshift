@@ -814,6 +814,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "795cbfc56d419a7ce47ccbb7504dd9a5b7c484c083c356e797de08bd988d9629"
 
 [[package]]
+name = "gamut-core"
+version = "2.0.0"
+source = "git+https://github.com/justin13888/gamut?rev=b08a1a223db3f010997d4918ddb41723b7266a4c#b08a1a223db3f010997d4918ddb41723b7266a4c"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1819,6 +1827,7 @@ dependencies = [
 name = "rawshift-core"
 version = "0.1.1"
 dependencies = [
+ "gamut-core",
  "serde",
  "serde_json",
 ]
