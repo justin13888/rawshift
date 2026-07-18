@@ -24,6 +24,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 gamut-color = { workspace = true }
 thiserror   = { workspace = true }
 
+# VAAPI is dlopen'd at runtime (never linked): libloading is the mature safe
+# dlopen wrapper. Target-gated so non-Linux builds never see it; the backend
+# module that uses it only compiles under cfg(hwdec_backend = "vaapi").
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8"
+
 [features]
 # Verified backend feature flags — see docs/SUPPORT.md for the permanent
 # target/API matrix. Each explicit backend flag hard-fails the compile
@@ -33,10 +39,11 @@ thiserror   = { workspace = true }
 # (windows-msvc, linux-musl, wasm) emits a build-script warning and compiles
 # the no-backend stub.
 #
-# This crate currently ships only the stub + the compile boundaries: the
-# platform backends land as separate issues (VideoToolbox / VAAPI #29 /
-# MediaCodec). Until then `decoder()` returns `None`, `backend()` returns
-# `None`, and `available_codecs()` is empty on every target.
+# Backends implemented: VAAPI (linux-gnu; dlopen'd libva, HEVC Main/Main10 +
+# AV1 Profile 0 still pictures). VideoToolbox / MediaCodec land as separate
+# issues; builds without a selected backend compile the no-backend stub —
+# `decoder()` returns `None`, `backend()` returns `None`, and
+# `available_codecs()` is empty.
 videotoolbox = []
 vaapi        = []
 mediacodec   = []
