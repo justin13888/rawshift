@@ -48,7 +48,8 @@ pub use crate::formats::export::{
     AvifRateControl, BitDepth, CommonEncodeOptions, EncodeOptions, JpegEncEncodeConfig,
     JpegSubsampling, JpegliEncodeConfig, LibaomEncodeConfig, LibjxlColorTransform,
     LibjxlEncodeConfig, LibjxlModular, LibwebpEncodeConfig, MetadataEmbedOptions, OutputFormat,
-    RavifEncodeConfig, WebPMode, ZuneJxlEncodeConfig, ZunePngEncodeConfig,
+    PngCompressionLevel, PngEncodeConfig, PngFilterStrategy, PngFilterType, RavifEncodeConfig,
+    WebPMode, ZuneJxlEncodeConfig,
 };
 // formats — decoders, format detection, encode/decode entry points
 pub use crate::formats::{

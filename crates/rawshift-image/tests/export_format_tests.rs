@@ -9,7 +9,7 @@ use rawshift_image::core::RgbImage;
 use rawshift_image::core::metadata::ImageMetadata;
 use rawshift_image::formats::export::{
     BitDepth, CommonEncodeOptions, EncodeOptions, JpegEncEncodeConfig, LibwebpEncodeConfig,
-    MetadataEmbedOptions, WebPMode, ZunePngEncodeConfig,
+    MetadataEmbedOptions, PngEncodeConfig, WebPMode,
 };
 use rawshift_image::formats::{encode_rgb_image, encode_rgb_image_to_vec};
 use std::fs;
@@ -399,11 +399,12 @@ mod png_tests {
     fn test_png_export_8bit() {
         let img = synthetic_image();
 
-        let opts = EncodeOptions::PngZune(ZunePngEncodeConfig {
+        let opts = EncodeOptions::PngGamut(PngEncodeConfig {
             common: CommonEncodeOptions {
                 bit_depth: BitDepth::Eight,
                 ..CommonEncodeOptions::default()
             },
+            ..PngEncodeConfig::default()
         });
         let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &opts)
             .expect("Export 8-bit PNG");
@@ -419,6 +420,52 @@ mod png_tests {
         let data = encode_rgb_image_to_vec(&img, &ImageMetadata::default(), &EncodeOptions::png())
             .expect("Export 16-bit PNG");
         assert_eq!(data[24], 16, "default PNG should be 16-bit");
+    }
+
+    /// A chunk type appears in the byte stream (chunk names are unique enough
+    /// in a tiny synthetic image for a windowed search).
+    fn png_has_chunk(data: &[u8], name: &[u8; 4]) -> bool {
+        data.windows(4).any(|w| w == name)
+    }
+
+    #[test]
+    fn test_png_export_metadata_roundtrip() {
+        use rawshift_image::formats::{StandardFormat, decode_standard_image};
+
+        let img = synthetic_image();
+        let mut metadata = ImageMetadata::default();
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"></x:xmpmeta>";
+        metadata.xmp = Some(xmp.as_bytes().to_vec());
+
+        let opts = EncodeOptions::PngGamut(PngEncodeConfig {
+            common: common(true, true, true),
+            ..PngEncodeConfig::default()
+        });
+        let data = encode_rgb_image_to_vec(&img, &metadata, &opts).expect("Export PNG");
+
+        assert_eq!(&data[0..8], &PNG_SIGNATURE);
+        assert!(
+            png_has_chunk(&data, b"eXIf"),
+            "PNG should carry an eXIf chunk"
+        );
+        assert!(
+            png_has_chunk(&data, b"iCCP"),
+            "PNG should carry an iCCP chunk"
+        );
+        assert!(
+            png_has_chunk(&data, b"iTXt"),
+            "PNG should carry the XMP iTXt chunk"
+        );
+        assert!(
+            data.windows(17).any(|w| w == b"XML:com.adobe.xmp"),
+            "the iTXt chunk should use the standard XMP keyword"
+        );
+
+        // The metadata-bearing file must still decode losslessly.
+        let decoded = decode_standard_image(&data, StandardFormat::Png).expect("decode PNG");
+        assert_eq!(decoded.width(), img.width());
+        assert_eq!(decoded.height(), img.height());
+        assert_eq!(decoded.data(), img.data(), "pixel round-trip must be exact");
     }
 }
 

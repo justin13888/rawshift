@@ -22,7 +22,7 @@ the `tiff-parser` API, or `heic-vendored` linking.
 | Nikon NEF    | Custom TIFF parser (Incomplete)                                                          | N/A                                                                                              | No test fixtures.                         |
 | Fujifilm RAF | Custom RAF parser (Incomplete)                                                           | N/A                                                                                              | No test fixtures.                         |
 | JPEG         | [zune-jpeg](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg) (Stable) | [jpeg-encoder](https://github.com/vstroebel/jpeg-encoder) (Stable, default) · [jpegli](https://github.com/google/jpegli) (distance/XYB + 16-bit input, opt-in) | jpegli via `jpeg-encode-jpegli` (system) / `jpeg-encode-jpegli-vendored` (from source). |
-| PNG          | [zune-png](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-png) (Stable)   | [zune-png](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-png) (Stable)           |                                           |
+| PNG          | [zune-png](https://github.com/etemesi254/zune-image/tree/dev/crates/zune-png) (Stable)   | [gamut-png](https://github.com/justin13888/gamut) (Stable)                                       | Encode via gamut (8/16-bit RGB, eXIf/iCCP/XMP chunks). |
 | WebP         | [libwebp-sys](https://github.com/noxf/libwebp-sys) (Stable)                              | [libwebp-sys](https://github.com/noxf/libwebp-sys) (Stable)                                      | C FFI bindings to libwebp.                |
 | GIF          | [gif](https://github.com/image-rs/image-gif) (Stable)                                    | Not planned                                                                                      |                                           |
 | TIFF         | [tiff](https://github.com/image-rs/image-tiff) (Stable)                                  | Not planned                                                                                      |                                           |
@@ -45,8 +45,8 @@ implementations are named and selected.
 
 Cargo features are organised in five tiers, from high-level bundles down to
 individual library bindings. Each tier is defined purely in terms of the tier
-below it; only tier-4 features (and RAW tier-3 features) pull in an external
-crate.
+below it; only tier-4 features (plus RAW tier-3 features and the gamut-backed
+`png-encode`) pull in an external crate.
 
 1. **Bundle features** — coarse, ready-made groupings.
    - `default` — `jpeg`, `png`, `webp`, `jxl-decode`, `gif-decode`, `tiff-decode`, `ppm-decode`.
@@ -65,7 +65,9 @@ crate.
      `tiff-decode`, `avif-decode`, `avif-encode`, `heic-decode`, `svg-decode`,
      `ppm-decode` — each is an **alias for that format+direction's default
      implementation**.
-     This is where the per-format default is defined.
+     This is where the per-format default is defined. Exception: `png-encode`
+     has a single gamut-backed implementation (`gamut-png`) and pulls it
+     directly, with no tier-4 layer below it.
    - RAW formats: `arw-decode`, `cr2-decode`, `cr3-decode`, `crw-decode`,
      `dng-decode`, `dng-encode`, `nef-decode`, `raf-decode` — RAW formats have a
      single in-repo implementation, so there is no tier-4 layer below them.
@@ -75,7 +77,7 @@ crate.
    format+direction may be enabled simultaneously; the active backend is chosen
    at the API level via `DecodeOptions` / `EncodeOptions`.
    - `jpeg-decode-zune`, `jpeg-encode-jpeg-enc`, `jpeg-encode-jpegli`
-   - `png-decode-zune`, `png-encode-zune`
+   - `png-decode-zune`
    - `webp-decode-libwebp`, `webp-encode-libwebp`
    - `jxl-decode-jxl-oxide`, `jxl-encode-zune`, `jxl-encode-libjxl`
    - `gif-decode-gif`, `tiff-decode-tiff`

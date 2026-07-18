@@ -137,16 +137,76 @@ pub enum AvifRateControl {
     Constrained,
 }
 
+/// DEFLATE compression level for the `gamut-png` PNG encoder
+/// (maps to `gamut_deflate::Level`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum PngCompressionLevel {
+    /// Stored (uncompressed) blocks only — fastest, largest.
+    Store,
+    /// Fast: greedy matching with fixed Huffman codes.
+    Fast,
+    /// Balanced default: lazy matching with per-block dynamic Huffman codes.
+    #[default]
+    Default,
+    /// Smallest output: zopfli-style optimal parse. Slowest; for write-once
+    /// assets where size dominates.
+    Best,
+}
+
+/// A fixed PNG scanline filter type (PNG §9.1) for
+/// [`PngFilterStrategy::Fixed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum PngFilterType {
+    /// No filtering; bytes stored as-is.
+    None,
+    /// Residual from the byte one pixel to the left.
+    Sub,
+    /// Residual from the byte directly above.
+    Up,
+    /// Residual from the floor-average of the left and above bytes.
+    Average,
+    /// Residual from the Paeth predictor of left, above, and above-left.
+    Paeth,
+}
+
+/// Scanline filter strategy for the `gamut-png` PNG encoder
+/// (maps to `gamut_png::FilterStrategy`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum PngFilterStrategy {
+    /// Filter every scanline with [`PngFilterType::None`] (fastest).
+    None,
+    /// Use one fixed filter for every scanline.
+    Fixed(PngFilterType),
+    /// Per scanline, pick the filter minimising the sum of absolute residuals
+    /// — the standard libpng heuristic and the default.
+    #[default]
+    MinSumAbs,
+    /// Try several whole-image strategies, DEFLATE each, keep the smallest.
+    /// Pairs with [`PngCompressionLevel::Best`] for maximum compression; slowest.
+    BruteForce,
+}
+
 // ── Currently-implemented backend configs ─────────────────────────────────────
 
-/// Configuration for the `zune-png` PNG encoder.
+/// Configuration for the `gamut-png` PNG encoder.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ZunePngEncodeConfig {
+pub struct PngEncodeConfig {
     /// Encoder-agnostic options (metadata embedding, bit depth).
     ///
     /// PNG honours `BitDepth::Eight` and `BitDepth::Sixteen`.
     pub common: CommonEncodeOptions,
+    /// DEFLATE compression level for the image data.
+    pub compression: PngCompressionLevel,
+    /// Scanline filter strategy.
+    pub filter: PngFilterStrategy,
+    /// Losslessly reduce truecolour input to a smaller colour type (greyscale,
+    /// palette, or alpha-dropped) when no pixel changes. Off by default so the
+    /// output colour type matches the input.
+    pub auto_reduce: bool,
 }
 
 /// Configuration for the `jpeg-encoder` (pure-Rust) JPEG encoder.
@@ -556,9 +616,9 @@ impl Default for SvtAv1EncodeConfig {
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EncodeOptions {
-    /// PNG via `zune-png` (requires `png-encode`).
+    /// PNG via `gamut-png` (requires `png-encode`).
     #[cfg(feature = "png-encode")]
-    PngZune(ZunePngEncodeConfig),
+    PngGamut(PngEncodeConfig),
     /// JPEG via the pure-Rust `jpeg-encoder` (requires `jpeg-encode`).
     #[cfg(feature = "jpeg-encode")]
     JpegJpegEnc(JpegEncEncodeConfig),
@@ -597,7 +657,7 @@ impl EncodeOptions {
     /// PNG with default configuration.
     #[cfg(feature = "png-encode")]
     pub fn png() -> Self {
-        Self::PngZune(ZunePngEncodeConfig::default())
+        Self::PngGamut(PngEncodeConfig::default())
     }
 
     /// JPEG with default configuration.
@@ -659,7 +719,7 @@ impl EncodeOptions {
     pub fn format(&self) -> OutputFormat {
         match self {
             #[cfg(feature = "png-encode")]
-            EncodeOptions::PngZune(_) => OutputFormat::Png,
+            EncodeOptions::PngGamut(_) => OutputFormat::Png,
             #[cfg(feature = "jpeg-encode")]
             EncodeOptions::JpegJpegEnc(_) => OutputFormat::Jpeg,
             #[cfg(feature = "jpeg-encode-jpegli")]
@@ -687,7 +747,7 @@ impl EncodeOptions {
     pub fn codec_id(&self) -> CodecId {
         match self {
             #[cfg(feature = "png-encode")]
-            EncodeOptions::PngZune(_) => CodecId::new("png/zune"),
+            EncodeOptions::PngGamut(_) => CodecId::new("png/gamut"),
             #[cfg(feature = "jpeg-encode")]
             EncodeOptions::JpegJpegEnc(_) => CodecId::new("jpeg/jpeg-encoder"),
             #[cfg(feature = "jpeg-encode-jpegli")]
@@ -716,7 +776,7 @@ impl EncodeOptions {
     pub fn common(&self) -> CommonEncodeOptions {
         match self {
             #[cfg(feature = "png-encode")]
-            EncodeOptions::PngZune(c) => c.common,
+            EncodeOptions::PngGamut(c) => c.common,
             #[cfg(feature = "jpeg-encode")]
             EncodeOptions::JpegJpegEnc(c) => c.common,
             #[cfg(feature = "jpeg-encode-jpegli")]

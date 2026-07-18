@@ -26,10 +26,12 @@ use crate::core::{CodecDirection, CodecId, CodecInfo};
 pub fn available_encoders() -> Vec<CodecInfo> {
     #[allow(unused_mut)]
     let mut encoders: Vec<CodecInfo> = Vec::new();
+    // Version tracks the gamut-png crate at the pinned gamut commit (git
+    // dependency). Hand-maintained — bump together with the gamut pin.
     #[cfg(feature = "png-encode")]
     encoders.push(CodecInfo::new(
-        CodecId::new("png/zune"),
-        "0.5",
+        CodecId::new("png/gamut"),
+        "0.1",
         CodecDirection::Encode,
     ));
     #[cfg(feature = "jpeg-encode")]
