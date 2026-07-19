@@ -262,8 +262,6 @@ pub enum ExifContainer {
     Tiff,
     /// WebP — RIFF `EXIF` chunk.
     WebP,
-    /// AVIF — HEIF/ISOBMFF `Exif` item.
-    Avif,
 }
 
 /// Parses EXIF metadata from image file bytes into an [`ImageMetadata`].
@@ -281,7 +279,6 @@ impl ExifParser {
         let blob = match container {
             ExifContainer::Tiff => Some(file_data.to_vec()),
             ExifContainer::WebP => extract_exif_from_webp(file_data),
-            ExifContainer::Avif => extract_exif_from_avif(file_data),
         };
         match blob {
             Some(blob) => Self::parse_exif_blob(&blob),
@@ -602,17 +599,10 @@ fn extract_exif_from_webp(data: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// Extract the EXIF TIFF stream of an AVIF `Exif` item.
-fn extract_exif_from_avif(data: &[u8]) -> Option<Vec<u8>> {
-    let payload = crate::metadata::isobmff::extract_item(data, *b"Exif")?;
-    // ExifDataBlock: a 4-byte offset to the TIFF header, then the payload.
-    let offset = u32::from_be_bytes(payload.get(..4)?.try_into().unwrap()) as usize;
-    let blob = payload
-        .get(4 + offset..)
-        .or_else(|| payload.get(4..))?
-        .to_vec();
-    Some(blob)
-}
+// (The AVIF `Exif`-item read path lives in `formats::avif` on gamut-avif's
+// item surface — the box-scanning reader that used to live here was replaced
+// in #33. The write path — `insert_item` splicing — remains in
+// `metadata::isobmff` until gamut-avif encode attaches metadata upstream.)
 
 #[cfg(test)]
 mod tests {

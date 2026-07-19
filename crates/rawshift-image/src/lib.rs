@@ -23,7 +23,10 @@
 //! ### Standard Formats (direct RGB decode)
 //! - GIF, JPEG, PNG, WebP, JPEG XL, TIFF
 //! - SVG (requires `svg` feature)
-//! - AVIF decode + encode (requires `avif` feature)
+//! - AVIF decode + encode (requires `avif` feature; gamut-avif
+//!   container/pipeline — metadata and auxiliary enumeration always work;
+//!   pixel decode needs a hardware AV1 decoder via `hw`, else
+//!   `RawError::HwDecoderUnavailable`)
 //! - HEIC decode (requires `heic` feature; gamut-heic container/pipeline —
 //!   metadata and auxiliary enumeration always work; pixel decode needs a
 //!   hardware HEVC decoder via `hw`, else `RawError::HwDecoderUnavailable`)

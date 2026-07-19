@@ -154,8 +154,9 @@ pub fn available_codecs() -> Vec<HwCodec>;
 - HEIC: gamut-heic parses the container (landed upstream in #238) → hwdec
   decodes items → tile stitch + irot/imir/clap in safe Rust → YCbCr→RGB via
   gamut-color CICP → `RgbImage`.
-- AVIF: same pipeline once gamut-avif exposes the container/av1C/OBU handoff
-  surface (upstream ask, analogous to #238).
+- AVIF: same pipeline (landed upstream in gamut#250): gamut-avif parses the
+  container → hwdec decodes items via av1C + OBU payload → grid stitch +
+  alpha merge + irot/imir/clap in gamut-avif → `RgbImage`.
 - Safety: all platform unsafe lives in this crate;
   `#![deny(unsafe_op_in_unsafe_fn)]`; safe public items; VAAPI is dlopen'd.
 - Platform/API commitments and exclusion justifications: [SUPPORT.md](./SUPPORT.md).

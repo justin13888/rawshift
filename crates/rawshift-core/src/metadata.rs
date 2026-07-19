@@ -265,6 +265,8 @@ pub enum MetadataNamespace {
     Iptc,
     /// HEIC/HEIF container-level facts.
     Heic,
+    /// AVIF container-level facts.
+    Avif,
     /// Vendor/format-specific, identified by the accompanying tag string.
     Other,
 }
