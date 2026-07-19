@@ -66,16 +66,13 @@ pub fn available_encoders() -> Vec<CodecInfo> {
         "3.11",
         CodecDirection::Encode,
     ));
+    // Version tracks the gamut-jxl crate at the pinned gamut commit (git
+    // dependency; wraps libjxl 0.12 via gamut-jxl-sys). Hand-maintained —
+    // bump together with the gamut pin.
     #[cfg(feature = "jxl-encode")]
     encoders.push(CodecInfo::new(
-        CodecId::new("jxl/zune"),
-        "0.5",
-        CodecDirection::Encode,
-    ));
-    #[cfg(feature = "jxl-encode-libjxl")]
-    encoders.push(CodecInfo::new(
-        CodecId::new("jxl/libjxl"),
-        "0.11",
+        CodecId::new("jxl/gamut"),
+        "0.3",
         CodecDirection::Encode,
     ));
     #[cfg(feature = "dng-encode")]
@@ -110,10 +107,13 @@ pub fn available_decoders() -> Vec<CodecInfo> {
         "0.14",
         CodecDirection::Decode,
     ));
+    // Version tracks the gamut-jxl crate at the pinned gamut commit (git
+    // dependency; pure-Rust jxl-rs decode). Hand-maintained — bump together
+    // with the gamut pin.
     #[cfg(feature = "jxl-decode")]
     decoders.push(CodecInfo::new(
-        CodecId::new("jxl/jxl-oxide"),
-        "0.12",
+        CodecId::new("jxl/gamut"),
+        "0.3",
         CodecDirection::Decode,
     ));
     #[cfg(feature = "gif-decode")]

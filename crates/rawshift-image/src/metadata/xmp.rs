@@ -1,8 +1,9 @@
 //! XMP metadata embedding for image export.
 //!
-//! Provides XMP embedding functions for JPEG, AVIF, JXL, and PNG formats.
-//! Every payload is validated with `gamut-xmp` before it is embedded, so a
-//! malformed packet is rejected instead of being spliced into the output.
+//! Provides XMP embedding functions for the JPEG and AVIF containers (PNG and
+//! JXL embed XMP through their gamut encoders instead). Every payload is
+//! validated with `gamut-xmp` before it is embedded, so a malformed packet is
+//! rejected instead of being spliced into the output.
 
 /// Error type for XMP embedding operations.
 #[derive(Debug)]
@@ -101,52 +102,6 @@ pub fn append_xmp_to_avif(xmp_bytes: &[u8], avif_data: Vec<u8>) -> Result<Vec<u8
     Ok(data)
 }
 
-/// Append XMP metadata to JXL container data.
-///
-/// If `jxl_data` is a naked codestream (starts with `[0xFF, 0x0A]`), it is
-/// first wrapped in a JXL container.  An `xml ` box containing the XMP packet
-/// is then appended at the end of the container.
-/// The payload is validated with `gamut-xmp` first.
-#[cfg_attr(not(feature = "jxl-encode"), allow(dead_code))]
-pub fn append_xmp_to_jxl(xmp_bytes: &[u8], jxl_data: Vec<u8>) -> Result<Vec<u8>, XmpError> {
-    validate_xmp(xmp_bytes)?;
-
-    let mut data = jxl_data;
-
-    // Wrap naked codestream in a JXL container if needed.
-    if data.starts_with(&[0xFF, 0x0A]) {
-        let codestream = std::mem::take(&mut data);
-        let jxlc_size = (8 + codestream.len()) as u32;
-        let mut container = Vec::new();
-        // JXL signature box (12 bytes)
-        container.extend_from_slice(&[0x00, 0x00, 0x00, 0x0C]);
-        container.extend_from_slice(b"JXL ");
-        container.extend_from_slice(&[0x0D, 0x0A, 0x87, 0x0A]);
-        // ftyp box (20 bytes)
-        container.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
-        container.extend_from_slice(b"ftyp");
-        container.extend_from_slice(b"jxl ");
-        container.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-        container.extend_from_slice(b"jxl ");
-        // jxlc box
-        container.extend_from_slice(&jxlc_size.to_be_bytes());
-        container.extend_from_slice(b"jxlc");
-        container.extend_from_slice(&codestream);
-        data = container;
-    } else if data.get(4..8) != Some(b"JXL ") {
-        return Err(XmpError::Container("unrecognized JXL format".into()));
-    }
-
-    // Append xml box at end of container.
-    let xml_size = (8 + xmp_bytes.len()) as u32;
-    data.reserve(xml_size as usize);
-    data.extend_from_slice(&xml_size.to_be_bytes());
-    data.extend_from_slice(b"xml ");
-    data.extend_from_slice(xmp_bytes);
-
-    Ok(data)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,49 +135,6 @@ mod tests {
         // Must contain the XMP payload
         let has_xmp = result.windows(xmp.len()).any(|w| w == xmp);
         assert!(has_xmp, "output must contain XMP payload");
-    }
-
-    #[test]
-    fn test_append_xmp_to_jxl_naked_codestream() {
-        let mut naked = vec![0xFF, 0x0A];
-        naked.extend_from_slice(&[0u8; 16]);
-
-        let xmp = VALID_XMP;
-        let result = append_xmp_to_jxl(xmp, naked).expect("JXL XMP embed should succeed");
-
-        assert_eq!(result.get(4..8), Some(b"JXL " as &[u8]));
-        let has_xml_box = result.windows(4).any(|w| w == b"xml ");
-        assert!(has_xml_box, "output must contain xml box");
-    }
-
-    #[test]
-    fn test_append_xmp_to_jxl_container() {
-        let jxlc_size = 11u32;
-        let mut container = Vec::new();
-        container.extend_from_slice(&[0x00, 0x00, 0x00, 0x0C]);
-        container.extend_from_slice(b"JXL ");
-        container.extend_from_slice(&[0x0D, 0x0A, 0x87, 0x0A]);
-        container.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
-        container.extend_from_slice(b"ftyp");
-        container.extend_from_slice(b"jxl ");
-        container.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-        container.extend_from_slice(b"jxl ");
-        container.extend_from_slice(&jxlc_size.to_be_bytes());
-        container.extend_from_slice(b"jxlc");
-        container.extend_from_slice(&[0xFF, 0x0A, 0x00]);
-
-        let xmp = VALID_XMP;
-        let result = append_xmp_to_jxl(xmp, container).expect("JXL XMP embed should succeed");
-
-        let has_xml_box = result.windows(4).any(|w| w == b"xml ");
-        assert!(has_xml_box, "output must contain xml box");
-    }
-
-    #[test]
-    fn test_append_xmp_to_jxl_invalid() {
-        let bad = b"not a jxl file at all!!";
-        let result = append_xmp_to_jxl(VALID_XMP, bad.to_vec());
-        assert!(result.is_err());
     }
 
     #[test]

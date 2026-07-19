@@ -2,9 +2,9 @@
 //!
 //! The profile bytes themselves are built and validated with `gamut-icc` (the
 //! upstream home for ICC parsing/serialization); the container embedding paths
-//! (JPEG APP2 via `img-parts`, AVIF/JXL box splicing) stay on this side until
-//! the per-format codec migrations move them behind the gamut codec
-//! boundaries.
+//! (JPEG APP2 via `img-parts`, AVIF box splicing) stay on this side until the
+//! per-format codec migrations move them behind the gamut codec boundaries
+//! (PNG and JXL already embed through their gamut encoders).
 
 use crate::metadata::isobmff::{find_box, patch_iloc_extents, read_u32_be, write_u32_be};
 
@@ -161,53 +161,6 @@ impl IccProfile {
 
         Ok(data)
     }
-
-    /// Embed ICC profile into JXL data.
-    ///
-    /// If `jxl_data` is a naked codestream (starts with `[0xFF, 0x0A]`), it is
-    /// first wrapped in a JXL container. An `iccp` box is then inserted before
-    /// the first `Exif`/`xml ` box, or appended at the end.
-    pub fn append_to_jxl(&self, jxl_data: Vec<u8>) -> Result<Vec<u8>, IccError> {
-        let mut data = jxl_data;
-
-        // Ensure container format
-        if data.starts_with(&[0xFF, 0x0A]) {
-            let codestream = std::mem::take(&mut data);
-            let jxlc_size = (8 + codestream.len()) as u32;
-            let mut container = Vec::new();
-            // JXL signature box (12 bytes): size=12, type="JXL ", data=[0D 0A 87 0A]
-            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x0C]);
-            container.extend_from_slice(b"JXL ");
-            container.extend_from_slice(&[0x0D, 0x0A, 0x87, 0x0A]);
-            // ftyp box (20 bytes)
-            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
-            container.extend_from_slice(b"ftyp");
-            container.extend_from_slice(b"jxl ");
-            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-            container.extend_from_slice(b"jxl ");
-            // jxlc box
-            container.extend_from_slice(&jxlc_size.to_be_bytes());
-            container.extend_from_slice(b"jxlc");
-            container.extend_from_slice(&codestream);
-            data = container;
-        } else if data.get(4..8) != Some(b"JXL ") {
-            return Err(IccError::Container("unrecognized JXL format".into()));
-        }
-
-        // Find insert position (before first Exif/xml /jbrd box, or end)
-        let insert_pos = find_jxl_insert_pos(&data);
-
-        // Build and splice iccp box
-        let icc_bytes = self.as_bytes();
-        let iccp_size = (8 + icc_bytes.len()) as u32;
-        let mut iccp_box = Vec::with_capacity(iccp_size as usize);
-        iccp_box.extend_from_slice(&iccp_size.to_be_bytes());
-        iccp_box.extend_from_slice(b"iccp");
-        iccp_box.extend_from_slice(icc_bytes);
-        data.splice(insert_pos..insert_pos, iccp_box);
-
-        Ok(data)
-    }
 }
 
 /// Build the minimal sRGB profile bytes from gamut-icc typed parts.
@@ -287,22 +240,6 @@ fn build_srgb_profile() -> Vec<u8> {
     profile
         .to_bytes()
         .expect("static sRGB profile must serialize")
-}
-
-/// Return the offset at which to insert an `iccp` box in a JXL container.
-fn find_jxl_insert_pos(data: &[u8]) -> usize {
-    let mut pos = 0;
-    while pos + 8 <= data.len() {
-        let size = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
-        if size < 8 || pos + size > data.len() {
-            break;
-        }
-        if matches!(&data[pos + 4..pos + 8], b"Exif" | b"xml " | b"jbrd") {
-            return pos;
-        }
-        pos += size;
-    }
-    data.len()
 }
 
 impl Default for IccProfile {
@@ -389,82 +326,5 @@ mod tests {
         let fake_profile = vec![0u8; 100];
         let profile = IccProfile::from_bytes(fake_profile);
         assert!(!profile.is_valid(), "Fake profile should not be valid");
-    }
-
-    // Build a minimal valid JXL container with just a signature + ftyp + jxlc box.
-    fn make_jxl_container(codestream: &[u8]) -> Vec<u8> {
-        let jxlc_size = (8 + codestream.len()) as u32;
-        let mut c = Vec::new();
-        // signature box
-        c.extend_from_slice(&[0x00, 0x00, 0x00, 0x0C]);
-        c.extend_from_slice(b"JXL ");
-        c.extend_from_slice(&[0x0D, 0x0A, 0x87, 0x0A]);
-        // ftyp
-        c.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
-        c.extend_from_slice(b"ftyp");
-        c.extend_from_slice(b"jxl ");
-        c.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-        c.extend_from_slice(b"jxl ");
-        // jxlc
-        c.extend_from_slice(&jxlc_size.to_be_bytes());
-        c.extend_from_slice(b"jxlc");
-        c.extend_from_slice(codestream);
-        c
-    }
-
-    fn jxl_has_iccp(data: &[u8]) -> bool {
-        let mut pos = 0;
-        while pos + 8 <= data.len() {
-            let sz = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
-            if sz < 8 {
-                break;
-            }
-            if &data[pos + 4..pos + 8] == b"iccp" {
-                return true;
-            }
-            pos += sz;
-        }
-        false
-    }
-
-    #[test]
-    fn test_append_to_jxl_naked_codestream() {
-        // Fake naked JXL codestream (just the magic bytes + padding)
-        let mut naked = vec![0xFF, 0x0A];
-        naked.extend_from_slice(&[0u8; 16]);
-
-        let profile = IccProfile::srgb();
-        let result = profile.append_to_jxl(naked).expect("append_to_jxl failed");
-
-        // Must be a container
-        assert!(
-            result.get(4..8) == Some(b"JXL "),
-            "Output should be JXL container"
-        );
-        // Must contain iccp box
-        assert!(jxl_has_iccp(&result), "Output should have iccp box");
-    }
-
-    #[test]
-    fn test_append_to_jxl_container_form() {
-        let container = make_jxl_container(&[0xFF, 0x0A, 0x00]);
-        let profile = IccProfile::srgb();
-        let result = profile
-            .append_to_jxl(container)
-            .expect("append_to_jxl failed");
-
-        assert!(
-            result.get(4..8) == Some(b"JXL "),
-            "Output should still be JXL container"
-        );
-        assert!(jxl_has_iccp(&result), "Output should have iccp box");
-    }
-
-    #[test]
-    fn test_append_to_jxl_invalid_data() {
-        let bad_data = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-        let profile = IccProfile::srgb();
-        let result = profile.append_to_jxl(bad_data);
-        assert!(result.is_err(), "Should error on unrecognized JXL data");
     }
 }

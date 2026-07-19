@@ -46,23 +46,19 @@ pub use crate::error::{
 // formats — encode option system
 pub use crate::formats::export::{
     AvifRateControl, BitDepth, CommonEncodeOptions, EncodeOptions, JpegEncEncodeConfig,
-    JpegSubsampling, JpegliEncodeConfig, LibaomEncodeConfig, LibjxlColorTransform,
-    LibjxlEncodeConfig, LibjxlModular, LibwebpEncodeConfig, MetadataEmbedOptions, OutputFormat,
-    PngCompressionLevel, PngEncodeConfig, PngFilterStrategy, PngFilterType, RavifEncodeConfig,
-    WebPMode, ZuneJxlEncodeConfig,
+    JpegSubsampling, JpegliEncodeConfig, JxlEncodeConfig, LibaomEncodeConfig, LibwebpEncodeConfig,
+    MetadataEmbedOptions, OutputFormat, PngCompressionLevel, PngEncodeConfig, PngFilterStrategy,
+    PngFilterType, RavifEncodeConfig, WebPMode,
 };
 // formats — decoders, format detection, encode/decode entry points
 pub use crate::formats::{
-    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, ImageProbe, JxlOxideDecodeConfig,
+    DecodeOptions, GifDecodeConfig, ImageAvifDecodeConfig, ImageProbe, JxlDecodeConfig,
     LibheifDecodeConfig, LibwebpDecodeConfig, ResvgDecodeConfig, StandardFormat, TiffDecodeConfig,
     ZuneJpegDecodeConfig, ZunePngDecodeConfig, available_decoders, available_encoders,
     decode_standard_image, decode_standard_image_with, detect_standard_format, encode_rgb_image,
     encode_rgb_image_to_vec, encode_rgb_image_to_writer, probe_standard_image,
     read_standard_image_metadata,
 };
-
-#[cfg(feature = "jxl-decode")]
-pub use crate::formats::decode_jxl_partial;
 
 #[cfg(any_raw)]
 pub use crate::formats::{RawFile, RawFormat};

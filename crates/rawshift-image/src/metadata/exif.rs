@@ -270,51 +270,6 @@ impl<'a> ExifBuilder<'a> {
         crate::metadata::isobmff::insert_item(avif_data, *b"Exif", &payload)
             .map_err(|e| ExifError::Container(format!("AVIF EXIF embedding failed: {e}")))
     }
-
-    /// Append EXIF metadata to an in-memory JXL byte stream.
-    ///
-    /// If `jxl_data` is a naked codestream (starts with `[0xFF, 0x0A]`), it is
-    /// first wrapped in a JXL container. An `Exif` box (a 4-byte TIFF-header
-    /// offset followed by the TIFF stream, per ISO/IEC 18181-2) is then
-    /// appended at the end of the container.
-    #[cfg_attr(not(feature = "jxl-encode"), allow(dead_code))]
-    pub fn append_to_jxl(&self, jxl_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
-        let tiff_bytes = self.build_bytes()?;
-
-        let mut data = jxl_data;
-        // Wrap naked codestream in a JXL container if needed.
-        if data.starts_with(&[0xFF, 0x0A]) {
-            let codestream = std::mem::take(&mut data);
-            let jxlc_size = (8 + codestream.len()) as u32;
-            let mut container = Vec::new();
-            // JXL signature box (12 bytes): size=12, type="JXL ", data=[0D 0A 87 0A]
-            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x0C]);
-            container.extend_from_slice(b"JXL ");
-            container.extend_from_slice(&[0x0D, 0x0A, 0x87, 0x0A]);
-            // ftyp box (20 bytes)
-            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
-            container.extend_from_slice(b"ftyp");
-            container.extend_from_slice(b"jxl ");
-            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-            container.extend_from_slice(b"jxl ");
-            // jxlc box
-            container.extend_from_slice(&jxlc_size.to_be_bytes());
-            container.extend_from_slice(b"jxlc");
-            container.extend_from_slice(&codestream);
-            data = container;
-        } else if data.get(4..8) != Some(b"JXL ") {
-            return Err(ExifError::Container("unrecognized JXL format".into()));
-        }
-
-        // Append the Exif box at the end of the container.
-        let box_size = (8 + 4 + tiff_bytes.len()) as u32;
-        data.reserve(box_size as usize);
-        data.extend_from_slice(&box_size.to_be_bytes());
-        data.extend_from_slice(b"Exif");
-        data.extend_from_slice(&0u32.to_be_bytes()); // TIFF-header offset
-        data.extend_from_slice(&tiff_bytes);
-        Ok(data)
-    }
 }
 
 // ── ExifParser ────────────────────────────────────────────────────────────────

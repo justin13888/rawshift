@@ -48,9 +48,7 @@ pub fn encode_rgb_image_to_vec(
         #[cfg(feature = "avif-encode-libaom")]
         EncodeOptions::AvifLibaom(cfg) => encode_avif_libaom(image, metadata, cfg),
         #[cfg(feature = "jxl-encode")]
-        EncodeOptions::JxlZune(cfg) => encode_jxl(image, metadata, cfg),
-        #[cfg(feature = "jxl-encode-libjxl")]
-        EncodeOptions::JxlLibjxl(cfg) => encode_jxl_libjxl(image, metadata, cfg),
+        EncodeOptions::Jxl(cfg) => encode_jxl(image, metadata, cfg),
         #[cfg(feature = "dng-encode")]
         EncodeOptions::Dng(cfg) => {
             let mut buf = std::io::Cursor::new(Vec::new());
@@ -555,88 +553,87 @@ fn encode_avif_libaom(
 fn encode_jxl(
     image: &RgbImage,
     metadata: &ImageMetadata,
-    cfg: &super::export::ZuneJxlEncodeConfig,
+    cfg: &super::export::JxlEncodeConfig,
 ) -> RawResult<Vec<u8>> {
     use crate::metadata::exif::ExifBuilder;
     use crate::metadata::icc::IccProfile;
-    use crate::metadata::xmp::append_xmp_to_jxl;
-    use zune_core::colorspace::ColorSpace as ZuneColorSpace;
-    use zune_core::options::EncoderOptions;
-    use zune_jpegxl::JxlSimpleEncoder;
+    use gamut_core::{Dimensions, EncodeImage, ImageRef, Rgb8, Rgb16};
+    use gamut_jxl::{ColorSpec, Container, Distance, Effort, JxlEncoder};
 
-    check_8bit_backend(cfg.common.bit_depth, "JXL")?;
-    let data_8bit = pack_rgb8(image);
-
-    let quality = if cfg.quality == 0.0 {
-        100
-    } else {
-        cfg.quality as u8
-    };
-    let enc_options = EncoderOptions::default()
-        .set_width(image.width() as usize)
-        .set_height(image.height() as usize)
-        .set_colorspace(ZuneColorSpace::RGB)
-        .set_quality(quality);
-
-    let encoder = JxlSimpleEncoder::new(&data_8bit, enc_options);
-    let mut encoded: Vec<u8> = Vec::new();
-    encoder.encode(&mut encoded).map_err(|e| {
+    let encoding_error = |e: gamut_core::Error| {
         RawError::Encode(EncodeError::Encoding {
             format: "JXL",
-            message: format!("{e:?}"),
+            message: format!("JXL encoding error: {e}"),
+        })
+    };
+
+    let dims = Dimensions::new(image.width(), image.height()).map_err(encoding_error)?;
+
+    let mut encoder = if cfg.lossless {
+        JxlEncoder::lossless()
+    } else {
+        JxlEncoder::lossy(Distance::new(cfg.distance).map_err(encoding_error)?)
+    };
+    let effort = Effort::from_level(cfg.effort).ok_or_else(|| {
+        RawError::Encode(EncodeError::Encoding {
+            format: "JXL",
+            message: format!("invalid JXL effort level {} (expected 1..=10)", cfg.effort),
         })
     })?;
-
-    let m = &cfg.common.metadata;
-    if m.embed_exif {
-        match ExifBuilder::new(metadata).append_to_jxl(encoded.clone()) {
-            Ok(data) => encoded = data,
-            Err(e) => tracing::warn!("Failed to embed EXIF in JXL: {e}"),
-        }
+    encoder = encoder.with_effort(effort);
+    if let Some(bits) = cfg.coded_bit_depth {
+        encoder = encoder.with_bit_depth(bits);
     }
+
+    // Metadata is written by the encoder itself: EXIF and XMP become container
+    // boxes (which forces ISO BMFF framing — gamut-jxl refuses metadata on a
+    // bare codestream), and the ICC profile is carried in the codestream's
+    // colour metadata rather than a sidecar box.
+    let m = &cfg.common.metadata;
     if m.embed_icc {
-        match IccProfile::srgb().append_to_jxl(encoded.clone()) {
-            Ok(data) => encoded = data,
-            Err(e) => tracing::warn!("Failed to embed ICC in JXL: {e}"),
+        encoder = encoder.with_color(ColorSpec::Icc(IccProfile::srgb().as_bytes().to_vec()));
+    }
+    let mut needs_container = cfg.use_container;
+    if m.embed_exif {
+        match ExifBuilder::new(metadata).build_bytes() {
+            Ok(bytes) => {
+                encoder = encoder.with_exif(&bytes);
+                needs_container = true;
+            }
+            Err(e) => tracing::warn!("Failed to embed EXIF in JXL: {e}"),
         }
     }
     if m.embed_xmp
         && let Some(xmp_data) = &metadata.xmp
     {
-        match append_xmp_to_jxl(xmp_data, encoded.clone()) {
-            Ok(data) => encoded = data,
-            Err(e) => tracing::warn!("Failed to embed XMP in JXL: {e}"),
+        match std::str::from_utf8(xmp_data) {
+            Ok(xmp) => {
+                encoder = encoder.with_xmp(xmp);
+                needs_container = true;
+            }
+            Err(e) => tracing::warn!("Failed to embed XMP in JXL (not valid UTF-8): {e}"),
         }
     }
+    if needs_container {
+        encoder = encoder.with_container(Container::IsoBmff);
+    }
 
-    Ok(encoded)
-}
-
-// ── JPEG XL (libjxl reference encoder) ──────────────────────────────────────────
-
-#[cfg(feature = "jxl-encode-libjxl")]
-fn encode_jxl_libjxl(
-    image: &RgbImage,
-    metadata: &ImageMetadata,
-    cfg: &super::export::LibjxlEncodeConfig,
-) -> RawResult<Vec<u8>> {
-    use super::export::{LibjxlColorTransform, LibjxlModular};
-    use crate::codecs::jxl_libjxl::{self, JxlEncodeParams};
-    use crate::metadata::exif::ExifBuilder;
-    use crate::metadata::icc::IccProfile;
-    use crate::metadata::xmp::append_xmp_to_jxl;
-
-    // Bit depth → packed sample bytes. Unlike the 8-bit-only backends, libjxl
-    // genuinely encodes 16-bit, so `Sixteen` is passed through (native-endian to
-    // match the `JXL_NATIVE_ENDIAN` pixel format the wrapper requests).
-    let (samples, bits_per_sample) = match cfg.common.bit_depth {
-        BitDepth::Eight => (pack_rgb8(image), 8u32),
+    // JXL genuinely supports 8- and 16-bit input; gamut-jxl encodes Rgb16
+    // directly (true 16-bit, lossless-capable), so no byte packing is needed.
+    let mut output = Vec::new();
+    match cfg.common.bit_depth {
+        BitDepth::Eight => {
+            let samples = pack_rgb8(image);
+            let img = ImageRef::<Rgb8>::new(&samples, dims).map_err(encoding_error)?;
+            encoder
+                .encode_image(img, &mut output)
+                .map_err(encoding_error)?;
+        }
         BitDepth::Sixteen => {
-            let mut bytes = Vec::with_capacity(image.data().len() * 2);
-            for &sample in image.data() {
-                bytes.extend_from_slice(&sample.to_ne_bytes());
-            }
-            (bytes, 16u32)
+            let img = ImageRef::<Rgb16>::new(image.data(), dims).map_err(encoding_error)?;
+            encoder
+                .encode_image(img, &mut output)
+                .map_err(encoding_error)?;
         }
         other => {
             return Err(RawError::Encode(EncodeError::UnsupportedBitDepth {
@@ -644,80 +641,7 @@ fn encode_jxl_libjxl(
                 requested: other,
             }));
         }
-    };
-
-    // Resolve the typed config to libjxl's `-1`/`0`/`1`… frame-setting values.
-    let modular = match cfg.modular {
-        LibjxlModular::Auto => -1,
-        LibjxlModular::VarDct => 0,
-        LibjxlModular::Modular => 1,
-    };
-    let color_transform = match cfg.color_transform {
-        LibjxlColorTransform::Auto => -1,
-        LibjxlColorTransform::Xyb => 0,
-        LibjxlColorTransform::None => 1,
-        LibjxlColorTransform::YCbCr => 2,
-    };
-    let tri = |o: Option<bool>| match o {
-        None => -1,
-        Some(false) => 0,
-        Some(true) => 1,
-    };
-
-    let params = JxlEncodeParams {
-        distance: cfg.distance,
-        quality: cfg.quality,
-        lossless: cfg.lossless,
-        effort: i64::from(cfg.effort),
-        brotli_effort: i64::from(cfg.brotli_effort),
-        decoding_speed: i64::from(cfg.decoding_speed),
-        progressive: cfg.progressive,
-        modular,
-        color_transform,
-        epf: i64::from(cfg.epf),
-        gaborish: tri(cfg.gaborish),
-        noise: tri(cfg.noise),
-        dots: tri(cfg.dots),
-        patches: tri(cfg.patches),
-        photon_noise_iso: cfg.photon_noise_iso,
-        resampling: i64::from(cfg.resampling),
-        use_container: cfg.use_container,
-        codestream_level: i32::from(cfg.codestream_level),
-        extra_int_options: cfg.extra_int_options.clone(),
-        extra_float_options: cfg.extra_float_options.clone(),
-    };
-
-    let mut encoded = jxl_libjxl::encode(
-        &samples,
-        image.width(),
-        image.height(),
-        bits_per_sample,
-        &params,
-    )
-    .map_err(|e| RawError::Encode(EncodeError::Jxl(e)))?;
-
-    // Metadata embedding mirrors the zune `encode_jxl` path exactly.
-    let m = &cfg.common.metadata;
-    if m.embed_exif {
-        match ExifBuilder::new(metadata).append_to_jxl(encoded.clone()) {
-            Ok(data) => encoded = data,
-            Err(e) => tracing::warn!("Failed to embed EXIF in JXL: {e}"),
-        }
-    }
-    if m.embed_icc {
-        match IccProfile::srgb().append_to_jxl(encoded.clone()) {
-            Ok(data) => encoded = data,
-            Err(e) => tracing::warn!("Failed to embed ICC in JXL: {e}"),
-        }
-    }
-    if m.embed_xmp
-        && let Some(xmp_data) = &metadata.xmp
-    {
-        match append_xmp_to_jxl(xmp_data, encoded.clone()) {
-            Ok(data) => encoded = data,
-            Err(e) => tracing::warn!("Failed to embed XMP in JXL: {e}"),
-        }
     }
 
-    Ok(encoded)
+    Ok(output)
 }
