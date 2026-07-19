@@ -132,8 +132,6 @@ impl HeicFile {
 /// metadata or cannot be parsed. Used by both [`HeicFile::metadata`] and
 /// [`read_standard_image_metadata`](crate::formats::read_standard_image_metadata).
 pub fn read_heic_metadata(data: &[u8]) -> ImageMetadata {
-    use little_exif::filetype::FileExtension;
-
     let blobs = match heic::extract_metadata_blobs(data) {
         Ok(b) => b,
         Err(_) => return ImageMetadata::default(),
@@ -141,7 +139,7 @@ pub fn read_heic_metadata(data: &[u8]) -> ImageMetadata {
 
     // Parse the EXIF block (a raw TIFF stream) into typed + generic fields.
     let mut md = match blobs.exif {
-        Some(ref exif) => ExifParser::parse_from_bytes(exif, FileExtension::TIFF),
+        Some(ref exif) => ExifParser::parse_exif_blob(exif),
         None => ImageMetadata::default(),
     };
 

@@ -23,13 +23,19 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 rawshift-core  = { workspace = true }
 gamut-core     = { workspace = true }
+# gamut-icc backs the sRGB profile construction and validation in
+# `metadata/icc.rs`, which compiles unconditionally (the `IccProfile` type is
+# part of the public `core` surface), so it is a required dependency.
+gamut-icc      = { workspace = true }
+gamut-exif     = { workspace = true, optional = true }
+gamut-metadata = { workspace = true, optional = true }
+gamut-xmp      = { workspace = true, optional = true }
 binrw          = { version = "0.15",   optional = true }
 libheif-rs     = { version = "2.7",    optional = true }
 libwebp-sys    = { version = "0.14",   optional = true }
 img-parts      = { version = "0.4",    optional = true }
 jpeg-encoder   = { version = "0.7",    optional = true }
 jxl-oxide      = { version = "0.12.5", optional = true }
-little_exif    = { version = "0.6",    optional = true }
 rayon          = { workspace = true }
 image          = { version = "0.25", default-features = false, features = ["avif-native"], optional = true }
 ravif          = { version = "0.13",   optional = true }
@@ -192,12 +198,15 @@ serde         = ["dep:serde", "rawshift-core/serde"]
 # `zune-core` codec primitives (bit depth, colorspace, decoder/encoder option
 # builders). Pulled by every zune-backed decode/encode impl feature.
 zune-runtime  = ["dep:zune-core"]
-# Typed EXIF read/write via `little_exif`. Pulled by format impl features that
-# parse embedded EXIF on decode or write it on encode.
-exif          = ["dep:little_exif"]
-# Container segment muxing via `img-parts` (JPEG APP segments, PNG chunks).
+# Typed EXIF read/write via the gamut metadata stack (`gamut-exif` for the
+# blob model, `gamut-metadata` + `gamut-xmp` for the unified-model bridge).
+# Pulled by format impl features that parse embedded EXIF on decode or write it
+# on encode.
+exif          = ["dep:gamut-exif", "dep:gamut-metadata", "dep:gamut-xmp"]
+# Container segment muxing via `img-parts` (JPEG APP segments, PNG chunks),
+# plus `gamut-xmp` for validating XMP packets before they are embedded.
 # Pulled by encode impl features that embed EXIF/ICC/XMP metadata.
-container-embed = ["dep:img-parts"]
+container-embed = ["dep:img-parts", "dep:gamut-xmp"]
 # HEIC/HEIF linking mode. `heic` links the system libheif (resolved by
 # pkg-config); `heic-vendored` builds libheif from source via cmake and links
 # it statically (needs a C/C++ toolchain + cmake). Enable exactly one.

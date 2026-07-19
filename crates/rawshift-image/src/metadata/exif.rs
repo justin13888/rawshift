@@ -1,14 +1,16 @@
-//! EXIF metadata generation and embedding.
+//! EXIF metadata parsing, generation, and embedding.
 //!
-//! Converts `ImageMetadata` to EXIF format and embeds it in image containers
-//! using `img-parts` for zero-copy segment manipulation.
+//! Builds and parses EXIF blobs with `gamut-exif` (the upstream home for the
+//! EXIF model — see the Upstream-First Policy) and converts them to and from
+//! [`ImageMetadata`]. Container-level concerns stay on this side for now:
+//! JPEG APP1 embedding goes through `img-parts`, AVIF/JXL embedding through
+//! the crate's ISOBMFF box splicing ([`crate::metadata::isobmff`]), and the
+//! decode-side blob *location* (APP1 segment, `eXIf` chunk, `EXIF` chunk,
+//! `Exif` item) is scanned here. All of that container surgery migrates behind
+//! the gamut codec boundaries with the per-format codec issues.
 
 use crate::core::metadata::ImageMetadata;
-use little_exif::exif_tag::ExifTag;
-use little_exif::filetype::FileExtension;
-use little_exif::ifd::ExifTagGroup;
-use little_exif::metadata::Metadata;
-use little_exif::rational::{iR64, uR64};
+use gamut_exif::{ByteOrder, Exif, ExifTag, ExifWriter, Ifd, Value};
 
 /// Error type for EXIF operations.
 #[derive(Debug)]
@@ -56,95 +58,105 @@ impl<'a> ExifBuilder<'a> {
         Self { metadata }
     }
 
-    /// Build EXIF metadata using little_exif.
-    pub fn build(&self) -> Metadata {
-        let mut exif = Metadata::new();
+    /// Build an EXIF model using `gamut-exif`.
+    pub fn build(&self) -> Exif {
+        let mut exif = Exif::new(ByteOrder::LittleEndian);
 
         // Camera info
         if !self.metadata.camera.make.is_empty() {
-            exif.set_tag(ExifTag::Make(self.metadata.camera.make.clone()));
+            exif.set_tag(
+                ExifTag::Make,
+                Value::Ascii(self.metadata.camera.make.clone()),
+            );
         }
         if !self.metadata.camera.model.is_empty() {
-            exif.set_tag(ExifTag::Model(self.metadata.camera.model.clone()));
+            exif.set_tag(
+                ExifTag::Model,
+                Value::Ascii(self.metadata.camera.model.clone()),
+            );
         }
         if let Some(ref lens_make) = self.metadata.camera.lens_make {
-            exif.set_tag(ExifTag::LensMake(lens_make.clone()));
+            exif.set_tag(ExifTag::LensMake, Value::Ascii(lens_make.clone()));
         }
         if let Some(ref lens_model) = self.metadata.camera.lens_model {
-            exif.set_tag(ExifTag::LensModel(lens_model.clone()));
+            exif.set_tag(ExifTag::LensModel, Value::Ascii(lens_model.clone()));
         }
         if let Some(ref serial) = self.metadata.camera.serial_number {
-            exif.set_tag(ExifTag::SerialNumber(serial.clone()));
+            exif.set_tag(ExifTag::BodySerialNumber, Value::Ascii(serial.clone()));
         }
 
         // EXIF exposure info
         if let Some(iso) = self.metadata.exif.iso {
-            exif.set_tag(ExifTag::ISO(vec![iso as u16]));
+            let value = match u16::try_from(iso) {
+                Ok(short) => Value::Short(vec![short]),
+                Err(_) => Value::Long(vec![iso]),
+            };
+            exif.set_tag(ExifTag::PhotographicSensitivity, value);
         }
         if let Some(r) = self.metadata.exif.exposure_time {
-            exif.set_tag(ExifTag::ExposureTime(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::ExposureTime,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(r) = self.metadata.exif.f_number {
-            exif.set_tag(ExifTag::FNumber(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::FNumber,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(r) = self.metadata.exif.focal_length {
-            exif.set_tag(ExifTag::FocalLength(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::FocalLength,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(fl_35mm) = self.metadata.exif.focal_length_35mm {
-            exif.set_tag(ExifTag::FocalLengthIn35mmFormat(vec![fl_35mm]));
+            exif.set_tag(ExifTag::FocalLengthIn35mmFilm, Value::Short(vec![fl_35mm]));
         }
         if let Some(program) = self.metadata.exif.exposure_program {
-            exif.set_tag(ExifTag::ExposureProgram(vec![program]));
+            exif.set_tag(ExifTag::ExposureProgram, Value::Short(vec![program]));
         }
         if let Some(metering) = self.metadata.exif.metering_mode {
-            exif.set_tag(ExifTag::MeteringMode(vec![metering]));
+            exif.set_tag(ExifTag::MeteringMode, Value::Short(vec![metering]));
         }
         if let Some(flash) = self.metadata.exif.flash {
-            exif.set_tag(ExifTag::Flash(vec![flash]));
+            exif.set_tag(ExifTag::Flash, Value::Short(vec![flash]));
         }
         if let Some(r) = self.metadata.exif.exposure_compensation {
-            exif.set_tag(ExifTag::ExposureCompensation(vec![iR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::ExposureBiasValue,
+                Value::SRational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(r) = self.metadata.exif.max_aperture {
-            exif.set_tag(ExifTag::MaxApertureValue(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::MaxApertureValue,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(r) = self.metadata.exif.brightness_value {
-            exif.set_tag(ExifTag::BrightnessValue(vec![iR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::BrightnessValue,
+                Value::SRational(vec![(r.numerator, r.denominator)]),
+            );
         }
 
         // Date/time info
         if let Some(ref dt) = self.metadata.datetime.datetime_original {
-            exif.set_tag(ExifTag::DateTimeOriginal(dt.clone()));
+            exif.set_tag(ExifTag::DateTimeOriginal, Value::Ascii(dt.clone()));
         }
         if let Some(ref dt) = self.metadata.datetime.create_date {
-            exif.set_tag(ExifTag::CreateDate(dt.clone()));
+            exif.set_tag(ExifTag::DateTimeDigitized, Value::Ascii(dt.clone()));
         }
         if let Some(ref dt) = self.metadata.datetime.modify_date {
-            exif.set_tag(ExifTag::ModifyDate(dt.clone()));
+            exif.set_tag(ExifTag::DateTime, Value::Ascii(dt.clone()));
         }
         if let Some(ref offset) = self.metadata.datetime.offset_time {
-            exif.set_tag(ExifTag::OffsetTime(offset.clone()));
+            exif.set_tag(ExifTag::OffsetTime, Value::Ascii(offset.clone()));
         }
         if let Some(ref subsec) = self.metadata.datetime.subsec_time {
-            exif.set_tag(ExifTag::SubSecTime(subsec.clone()));
+            exif.set_tag(ExifTag::SubSecTime, Value::Ascii(subsec.clone()));
         }
 
         // GPS info
@@ -152,75 +164,61 @@ impl<'a> ExifBuilder<'a> {
 
         // Image info
         if let Some(orient) = self.metadata.image.orientation {
-            exif.set_tag(ExifTag::Orientation(vec![orient]));
+            exif.set_tag(ExifTag::Orientation, Value::Short(vec![orient]));
         }
 
         exif
     }
 
     /// Build GPS-related EXIF tags.
-    fn build_gps(&self, exif: &mut Metadata) {
+    fn build_gps(&self, exif: &mut Exif) {
         let gps = &self.metadata.gps;
+        let triple = |v: &[crate::core::metadata::URational; 3]| {
+            Value::Rational(vec![
+                (v[0].numerator, v[0].denominator),
+                (v[1].numerator, v[1].denominator),
+                (v[2].numerator, v[2].denominator),
+            ])
+        };
 
-        if let Some(lat) = gps.latitude {
-            let lat_vec: Vec<uR64> = lat
-                .iter()
-                .map(|r| uR64 {
-                    nominator: r.numerator,
-                    denominator: r.denominator,
-                })
-                .collect();
-            exif.set_tag(ExifTag::GPSLatitude(lat_vec));
+        if let Some(ref lat) = gps.latitude {
+            exif.set_tag(ExifTag::GpsLatitude, triple(lat));
         }
         if let Some(lat_ref) = gps.latitude_ref {
-            exif.set_tag(ExifTag::GPSLatitudeRef(lat_ref.to_string()));
+            exif.set_tag(ExifTag::GpsLatitudeRef, Value::Ascii(lat_ref.to_string()));
         }
-        if let Some(lon) = gps.longitude {
-            let lon_vec: Vec<uR64> = lon
-                .iter()
-                .map(|r| uR64 {
-                    nominator: r.numerator,
-                    denominator: r.denominator,
-                })
-                .collect();
-            exif.set_tag(ExifTag::GPSLongitude(lon_vec));
+        if let Some(ref lon) = gps.longitude {
+            exif.set_tag(ExifTag::GpsLongitude, triple(lon));
         }
         if let Some(lon_ref) = gps.longitude_ref {
-            exif.set_tag(ExifTag::GPSLongitudeRef(lon_ref.to_string()));
+            exif.set_tag(ExifTag::GpsLongitudeRef, Value::Ascii(lon_ref.to_string()));
         }
         if let Some(r) = gps.altitude {
-            exif.set_tag(ExifTag::GPSAltitude(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::GpsAltitude,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(alt_ref) = gps.altitude_ref {
-            exif.set_tag(ExifTag::GPSAltitudeRef(vec![alt_ref]));
+            exif.set_tag(ExifTag::GpsAltitudeRef, Value::Byte(vec![alt_ref]));
         }
-        if let Some(timestamp) = gps.timestamp {
-            let ts_vec: Vec<uR64> = timestamp
-                .iter()
-                .map(|r| uR64 {
-                    nominator: r.numerator,
-                    denominator: r.denominator,
-                })
-                .collect();
-            exif.set_tag(ExifTag::GPSTimeStamp(ts_vec));
+        if let Some(ref timestamp) = gps.timestamp {
+            exif.set_tag(ExifTag::GpsTimeStamp, triple(timestamp));
         }
         if let Some(ref datestamp) = gps.datestamp {
-            exif.set_tag(ExifTag::GPSDateStamp(datestamp.clone()));
+            exif.set_tag(ExifTag::GpsDateStamp, Value::Ascii(datestamp.clone()));
         }
         if let Some(r) = gps.speed {
-            exif.set_tag(ExifTag::GPSSpeed(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::GpsSpeed,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
         if let Some(r) = gps.img_direction {
-            exif.set_tag(ExifTag::GPSImgDirection(vec![uR64 {
-                nominator: r.numerator,
-                denominator: r.denominator,
-            }]));
+            exif.set_tag(
+                ExifTag::GpsImgDirection,
+                Value::Rational(vec![(r.numerator, r.denominator)]),
+            );
         }
     }
 
@@ -231,18 +229,10 @@ impl<'a> ExifBuilder<'a> {
     /// wrapping). For WebP, prepend `b"Exif\0\0"` before passing to the muxer.
     pub fn build_bytes(&self) -> Result<Vec<u8>, ExifError> {
         let exif = self.build();
-        let jpeg_app1 = exif
-            .as_u8_vec(FileExtension::JPEG)
-            .map_err(|e| ExifError::Serialization(e.to_string()))?;
-        // as_u8_vec(JPEG) returns: [FF E1] [len_hi len_lo] [Exif\0\0] [TIFF data...]
-        // Strip the 10-byte APP1 wrapper to get raw TIFF data.
-        const APP1_WRAPPER_LEN: usize = 2 + 2 + 6; // marker + length + "Exif\0\0"
-        if jpeg_app1.len() <= APP1_WRAPPER_LEN {
-            return Err(ExifError::Serialization(
-                "EXIF data too short after APP1 header".into(),
-            ));
-        }
-        Ok(jpeg_app1[APP1_WRAPPER_LEN..].to_vec())
+        ExifWriter::new()
+            .marker(false)
+            .write(&exif)
+            .map_err(|e| ExifError::Serialization(e.to_string()))
     }
 
     /// Append EXIF metadata to existing JPEG data.
@@ -265,250 +255,218 @@ impl<'a> ExifBuilder<'a> {
 
     /// Append EXIF metadata to an in-memory AVIF byte stream.
     ///
-    /// AVIF uses the HEIF/ISOBMFF container; `little_exif`'s `write_to_vec`
-    /// splices the EXIF item directly into the buffer — no file path required.
+    /// AVIF uses the HEIF/ISOBMFF container; the EXIF payload is stored as an
+    /// `Exif` item (an `ExifDataBlock`: a 4-byte TIFF-header offset followed by
+    /// the TIFF stream) and wired into `iinf`/`iloc`/`iref` — see
+    /// [`crate::metadata::isobmff::insert_item`].
     #[cfg_attr(not(feature = "avif"), allow(dead_code))]
-    pub fn append_to_avif(&self, mut avif_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
-        let exif = self.build();
-        exif.write_to_vec(&mut avif_data, FileExtension::HEIF)
-            .map_err(|e| ExifError::Container(format!("AVIF EXIF embedding failed: {e}")))?;
-        Ok(avif_data)
+    pub fn append_to_avif(&self, avif_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
+        let tiff_bytes = self.build_bytes()?;
+        // ExifDataBlock (ISO 23008-12): exif_tiff_header_offset then the payload.
+        // The offset is 0 because the payload is a bare TIFF stream.
+        let mut payload = Vec::with_capacity(4 + tiff_bytes.len());
+        payload.extend_from_slice(&0u32.to_be_bytes());
+        payload.extend_from_slice(&tiff_bytes);
+        crate::metadata::isobmff::insert_item(avif_data, *b"Exif", &payload)
+            .map_err(|e| ExifError::Container(format!("AVIF EXIF embedding failed: {e}")))
     }
 
     /// Append EXIF metadata to an in-memory JXL byte stream.
     ///
-    /// Uses `little_exif`'s native JXL container support — no file path required.
+    /// If `jxl_data` is a naked codestream (starts with `[0xFF, 0x0A]`), it is
+    /// first wrapped in a JXL container. An `Exif` box (a 4-byte TIFF-header
+    /// offset followed by the TIFF stream, per ISO/IEC 18181-2) is then
+    /// appended at the end of the container.
     #[cfg_attr(not(feature = "jxl-encode"), allow(dead_code))]
-    pub fn append_to_jxl(&self, mut jxl_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
-        let exif = self.build();
-        exif.write_to_vec(&mut jxl_data, FileExtension::JXL)
-            .map_err(|e| ExifError::Container(format!("JXL EXIF embedding failed: {e}")))?;
-        Ok(jxl_data)
+    pub fn append_to_jxl(&self, jxl_data: Vec<u8>) -> Result<Vec<u8>, ExifError> {
+        let tiff_bytes = self.build_bytes()?;
+
+        let mut data = jxl_data;
+        // Wrap naked codestream in a JXL container if needed.
+        if data.starts_with(&[0xFF, 0x0A]) {
+            let codestream = std::mem::take(&mut data);
+            let jxlc_size = (8 + codestream.len()) as u32;
+            let mut container = Vec::new();
+            // JXL signature box (12 bytes): size=12, type="JXL ", data=[0D 0A 87 0A]
+            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x0C]);
+            container.extend_from_slice(b"JXL ");
+            container.extend_from_slice(&[0x0D, 0x0A, 0x87, 0x0A]);
+            // ftyp box (20 bytes)
+            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
+            container.extend_from_slice(b"ftyp");
+            container.extend_from_slice(b"jxl ");
+            container.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+            container.extend_from_slice(b"jxl ");
+            // jxlc box
+            container.extend_from_slice(&jxlc_size.to_be_bytes());
+            container.extend_from_slice(b"jxlc");
+            container.extend_from_slice(&codestream);
+            data = container;
+        } else if data.get(4..8) != Some(b"JXL ") {
+            return Err(ExifError::Container("unrecognized JXL format".into()));
+        }
+
+        // Append the Exif box at the end of the container.
+        let box_size = (8 + 4 + tiff_bytes.len()) as u32;
+        data.reserve(box_size as usize);
+        data.extend_from_slice(&box_size.to_be_bytes());
+        data.extend_from_slice(b"Exif");
+        data.extend_from_slice(&0u32.to_be_bytes()); // TIFF-header offset
+        data.extend_from_slice(&tiff_bytes);
+        Ok(data)
     }
 }
 
 // ── ExifParser ────────────────────────────────────────────────────────────────
 
+/// The container an EXIF blob is located in before parsing.
+///
+/// Selects the decode-side blob-location strategy of
+/// [`ExifParser::parse_from_bytes`]: which segment/chunk/item of the file
+/// carries the EXIF TIFF stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExifContainer {
+    /// JPEG — APP1 `Exif\0\0` segment.
+    Jpeg,
+    /// PNG — `eXIf` chunk.
+    Png,
+    /// TIFF — the whole file is the TIFF stream.
+    Tiff,
+    /// WebP — RIFF `EXIF` chunk.
+    WebP,
+    /// AVIF — HEIF/ISOBMFF `Exif` item.
+    Avif,
+}
+
 /// Parses EXIF metadata from image file bytes into an [`ImageMetadata`].
 ///
-/// Supports all formats that `little_exif` can read: JPEG, WebP, PNG, TIFF,
-/// and HEIF/AVIF.
+/// Locates the EXIF blob in the container ([`ExifContainer`]) and parses it
+/// with `gamut-exif`.
 pub struct ExifParser;
 
 impl ExifParser {
-    /// Read EXIF from `file_data` (autodetects format) and convert to [`ImageMetadata`].
+    /// Read EXIF from `file_data` and convert to [`ImageMetadata`].
     ///
     /// Returns a default (empty) [`ImageMetadata`] if the file has no EXIF or
-    /// if the format is not supported for metadata extraction.
-    pub fn parse_from_bytes(file_data: &[u8], file_type: FileExtension) -> ImageMetadata {
-        let exif = match Metadata::new_from_vec(&file_data.to_vec(), file_type) {
-            Ok(m) => m,
-            Err(_) => return ImageMetadata::default(),
+    /// the container/blob is malformed.
+    pub fn parse_from_bytes(file_data: &[u8], container: ExifContainer) -> ImageMetadata {
+        let blob = match container {
+            ExifContainer::Jpeg => extract_exif_from_jpeg(file_data),
+            ExifContainer::Png => extract_exif_from_png(file_data),
+            ExifContainer::Tiff => Some(file_data.to_vec()),
+            ExifContainer::WebP => extract_exif_from_webp(file_data),
+            ExifContainer::Avif => extract_exif_from_avif(file_data),
         };
-        Self::parse_metadata(&exif)
+        match blob {
+            Some(blob) => Self::parse_exif_blob(&blob),
+            None => ImageMetadata::default(),
+        }
     }
 
-    /// Convert an already-parsed `little_exif::Metadata` into [`ImageMetadata`].
-    pub fn parse_metadata(exif: &Metadata) -> ImageMetadata {
+    /// Parse a raw EXIF blob (a TIFF stream, with or without the `Exif\0\0`
+    /// marker) into [`ImageMetadata`].
+    ///
+    /// Returns a default (empty) [`ImageMetadata`] if the blob is malformed.
+    pub fn parse_exif_blob(blob: &[u8]) -> ImageMetadata {
+        match Exif::parse(blob) {
+            Ok(exif) => Self::parse_metadata(&exif),
+            Err(_) => ImageMetadata::default(),
+        }
+    }
+
+    /// Convert an already-parsed [`gamut_exif::Exif`] into [`ImageMetadata`].
+    pub fn parse_metadata(exif: &Exif) -> ImageMetadata {
         use crate::core::metadata::*;
 
         let mut md = ImageMetadata::default();
 
         // ── Camera info ───────────────────────────────────────────────────────
-        if let Some(ExifTag::Make(s)) = exif.get_tag_by_hex(0x010f, None).next() {
-            md.camera.make = s.trim_end_matches('\0').to_string();
+        if let Some(s) = exif.get_tag(ExifTag::Make).and_then(value_text) {
+            md.camera.make = s;
         }
-        if let Some(ExifTag::Model(s)) = exif.get_tag_by_hex(0x0110, None).next() {
-            md.camera.model = s.trim_end_matches('\0').to_string();
+        if let Some(s) = exif.get_tag(ExifTag::Model).and_then(value_text) {
+            md.camera.model = s;
         }
-        if let Some(ExifTag::LensMake(s)) = exif.get_tag_by_hex(0xa433, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.camera.lens_make = Some(v);
-            }
-        }
-        if let Some(ExifTag::LensModel(s)) = exif.get_tag_by_hex(0xa434, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.camera.lens_model = Some(v);
-            }
-        }
-        if let Some(ExifTag::SerialNumber(s)) = exif.get_tag_by_hex(0xa431, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.camera.serial_number = Some(v);
-            }
-        }
+        md.camera.lens_make = nonempty_text(exif, ExifTag::LensMake);
+        md.camera.lens_model = nonempty_text(exif, ExifTag::LensModel);
+        md.camera.serial_number = nonempty_text(exif, ExifTag::BodySerialNumber);
 
         // ── EXIF exposure settings ────────────────────────────────────────────
-        if let Some(ExifTag::ISO(v)) = exif.get_tag_by_hex(0x8827, None).next()
-            && let Some(&iso) = v.first()
-        {
-            md.exif.iso = Some(iso as u32);
-        }
-        if let Some(ExifTag::ExposureTime(v)) = exif.get_tag_by_hex(0x829a, None).next()
-            && let Some(r) = v.first()
-        {
-            md.exif.exposure_time = Some(URational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::FNumber(v)) = exif.get_tag_by_hex(0x829d, None).next()
-            && let Some(r) = v.first()
-        {
-            md.exif.f_number = Some(URational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::FocalLength(v)) = exif.get_tag_by_hex(0x920a, None).next()
-            && let Some(r) = v.first()
-        {
-            md.exif.focal_length = Some(URational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::FocalLengthIn35mmFormat(v)) = exif.get_tag_by_hex(0xa405, None).next()
-            && let Some(&fl) = v.first()
-        {
-            md.exif.focal_length_35mm = Some(fl);
-        }
-        if let Some(ExifTag::ExposureProgram(v)) = exif.get_tag_by_hex(0x8822, None).next()
-            && let Some(&ep) = v.first()
-        {
-            md.exif.exposure_program = Some(ep);
-        }
-        if let Some(ExifTag::MeteringMode(v)) = exif.get_tag_by_hex(0x9207, None).next()
-            && let Some(&mm) = v.first()
-        {
-            md.exif.metering_mode = Some(mm);
-        }
-        if let Some(ExifTag::Flash(v)) = exif.get_tag_by_hex(0x9209, None).next()
-            && let Some(&fl) = v.first()
-        {
-            md.exif.flash = Some(fl);
-        }
-        if let Some(ExifTag::ExposureCompensation(v)) = exif.get_tag_by_hex(0x9204, None).next()
-            && let Some(r) = v.first()
-        {
-            md.exif.exposure_compensation = Some(SRational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::MaxApertureValue(v)) = exif.get_tag_by_hex(0x9205, None).next()
-            && let Some(r) = v.first()
-        {
-            md.exif.max_aperture = Some(URational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::BrightnessValue(v)) = exif.get_tag_by_hex(0x9203, None).next()
-            && let Some(r) = v.first()
-        {
-            md.exif.brightness_value = Some(SRational::new(r.nominator, r.denominator));
-        }
+        md.exif.iso = exif
+            .get_tag(ExifTag::PhotographicSensitivity)
+            .and_then(first_u32);
+        md.exif.exposure_time = exif
+            .get_tag(ExifTag::ExposureTime)
+            .and_then(first_urational);
+        md.exif.f_number = exif.get_tag(ExifTag::FNumber).and_then(first_urational);
+        md.exif.focal_length = exif.get_tag(ExifTag::FocalLength).and_then(first_urational);
+        md.exif.focal_length_35mm = exif
+            .get_tag(ExifTag::FocalLengthIn35mmFilm)
+            .and_then(first_u16);
+        md.exif.exposure_program = exif.get_tag(ExifTag::ExposureProgram).and_then(first_u16);
+        md.exif.metering_mode = exif.get_tag(ExifTag::MeteringMode).and_then(first_u16);
+        md.exif.flash = exif.get_tag(ExifTag::Flash).and_then(first_u16);
+        md.exif.exposure_compensation = exif
+            .get_tag(ExifTag::ExposureBiasValue)
+            .and_then(first_srational);
+        md.exif.max_aperture = exif
+            .get_tag(ExifTag::MaxApertureValue)
+            .and_then(first_urational);
+        md.exif.brightness_value = exif
+            .get_tag(ExifTag::BrightnessValue)
+            .and_then(first_srational);
 
         // ── Date/time ─────────────────────────────────────────────────────────
-        if let Some(ExifTag::DateTimeOriginal(s)) = exif.get_tag_by_hex(0x9003, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.datetime.datetime_original = Some(v);
-            }
-        }
-        if let Some(ExifTag::CreateDate(s)) = exif.get_tag_by_hex(0x9004, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.datetime.create_date = Some(v);
-            }
-        }
-        if let Some(ExifTag::ModifyDate(s)) = exif.get_tag_by_hex(0x0132, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.datetime.modify_date = Some(v);
-            }
-        }
-        if let Some(ExifTag::OffsetTime(s)) = exif.get_tag_by_hex(0x9010, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.datetime.offset_time = Some(v);
-            }
-        }
-        if let Some(ExifTag::SubSecTime(s)) = exif.get_tag_by_hex(0x9290, None).next() {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.datetime.subsec_time = Some(v);
-            }
-        }
+        md.datetime.datetime_original = nonempty_text(exif, ExifTag::DateTimeOriginal);
+        md.datetime.create_date = nonempty_text(exif, ExifTag::DateTimeDigitized);
+        md.datetime.modify_date = nonempty_text(exif, ExifTag::DateTime);
+        md.datetime.offset_time = nonempty_text(exif, ExifTag::OffsetTime);
+        md.datetime.subsec_time = nonempty_text(exif, ExifTag::SubSecTime);
 
         // ── GPS ───────────────────────────────────────────────────────────────
-        if let Some(ExifTag::GPSLatitude(v)) =
-            exif.get_tag_by_hex(0x0002, Some(ExifTagGroup::GPS)).next()
-            && v.len() >= 3
-        {
-            md.gps.latitude = Some([
-                URational::new(v[0].nominator, v[0].denominator),
-                URational::new(v[1].nominator, v[1].denominator),
-                URational::new(v[2].nominator, v[2].denominator),
-            ]);
-        }
-        if let Some(ExifTag::GPSLatitudeRef(s)) =
-            exif.get_tag_by_hex(0x0001, Some(ExifTagGroup::GPS)).next()
-        {
-            md.gps.latitude_ref = s.chars().next().filter(|c| !c.is_ascii_control());
-        }
-        if let Some(ExifTag::GPSLongitude(v)) =
-            exif.get_tag_by_hex(0x0004, Some(ExifTagGroup::GPS)).next()
-            && v.len() >= 3
-        {
-            md.gps.longitude = Some([
-                URational::new(v[0].nominator, v[0].denominator),
-                URational::new(v[1].nominator, v[1].denominator),
-                URational::new(v[2].nominator, v[2].denominator),
-            ]);
-        }
-        if let Some(ExifTag::GPSLongitudeRef(s)) =
-            exif.get_tag_by_hex(0x0003, Some(ExifTagGroup::GPS)).next()
-        {
-            md.gps.longitude_ref = s.chars().next().filter(|c| !c.is_ascii_control());
-        }
-        if let Some(ExifTag::GPSAltitude(v)) =
-            exif.get_tag_by_hex(0x0006, Some(ExifTagGroup::GPS)).next()
-            && let Some(r) = v.first()
-        {
-            md.gps.altitude = Some(URational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::GPSAltitudeRef(v)) =
-            exif.get_tag_by_hex(0x0005, Some(ExifTagGroup::GPS)).next()
-            && let Some(&ar) = v.first()
-        {
-            md.gps.altitude_ref = Some(ar);
-        }
-        if let Some(ExifTag::GPSTimeStamp(v)) =
-            exif.get_tag_by_hex(0x0007, Some(ExifTagGroup::GPS)).next()
-            && v.len() >= 3
-        {
-            md.gps.timestamp = Some([
-                URational::new(v[0].nominator, v[0].denominator),
-                URational::new(v[1].nominator, v[1].denominator),
-                URational::new(v[2].nominator, v[2].denominator),
-            ]);
-        }
-        if let Some(ExifTag::GPSDateStamp(s)) =
-            exif.get_tag_by_hex(0x001d, Some(ExifTagGroup::GPS)).next()
-        {
-            let v = s.trim_end_matches('\0').to_string();
-            if !v.is_empty() {
-                md.gps.datestamp = Some(v);
+        // Positioning tags come from the typed view; the remaining tags the
+        // typed view does not model are read from the GPS sub-IFD directly.
+        if let Some(gps) = exif.gps() {
+            let to_ur = |r: gamut_exif::Rational| URational::new(r.num, r.den);
+            if let Some(lat) = gps.latitude {
+                md.gps.latitude =
+                    Some([to_ur(lat.degrees), to_ur(lat.minutes), to_ur(lat.seconds)]);
+                md.gps.latitude_ref = Some(gps_reference_char(lat.reference));
+            }
+            if let Some(lon) = gps.longitude {
+                md.gps.longitude =
+                    Some([to_ur(lon.degrees), to_ur(lon.minutes), to_ur(lon.seconds)]);
+                md.gps.longitude_ref = Some(gps_reference_char(lon.reference));
+            }
+            if let Some(alt) = gps.altitude {
+                md.gps.altitude = Some(to_ur(alt.meters));
+                md.gps.altitude_ref = Some(u8::from(alt.below_sea_level));
             }
         }
-        if let Some(ExifTag::GPSSpeed(v)) =
-            exif.get_tag_by_hex(0x000d, Some(ExifTagGroup::GPS)).next()
-            && let Some(r) = v.first()
-        {
-            md.gps.speed = Some(URational::new(r.nominator, r.denominator));
-        }
-        if let Some(ExifTag::GPSImgDirection(v)) =
-            exif.get_tag_by_hex(0x0011, Some(ExifTagGroup::GPS)).next()
-            && let Some(r) = v.first()
-        {
-            md.gps.img_direction = Some(URational::new(r.nominator, r.denominator));
+        if let Some(gps_ifd) = exif.gps_ifd() {
+            if let Some(Value::Rational(v)) = gps_ifd.get(ExifTag::GpsTimeStamp.tag_id())
+                && v.len() >= 3
+            {
+                md.gps.timestamp = Some([
+                    URational::new(v[0].0, v[0].1),
+                    URational::new(v[1].0, v[1].1),
+                    URational::new(v[2].0, v[2].1),
+                ]);
+            }
+            md.gps.datestamp = gps_ifd
+                .get(ExifTag::GpsDateStamp.tag_id())
+                .and_then(value_text)
+                .filter(|s| !s.is_empty());
+            md.gps.speed = gps_ifd
+                .get(ExifTag::GpsSpeed.tag_id())
+                .and_then(first_urational);
+            md.gps.img_direction = gps_ifd
+                .get(ExifTag::GpsImgDirection.tag_id())
+                .and_then(first_urational);
         }
 
         // ── Image info ────────────────────────────────────────────────────────
-        if let Some(ExifTag::Orientation(v)) = exif.get_tag_by_hex(0x0112, None).next()
-            && let Some(&o) = v.first()
-        {
-            md.image.orientation = Some(o);
-        }
+        md.image.orientation = exif.orientation();
 
         // ── Generic tag table ─────────────────────────────────────────────────
         // Mirror every EXIF tag into the typed `extra` table so nothing is lost,
@@ -519,31 +477,89 @@ impl ExifParser {
     }
 
     /// Populate [`ImageMetadata::extra`] with a typed mirror of every EXIF tag.
-    fn populate_extra(exif: &Metadata, md: &mut crate::core::metadata::ImageMetadata) {
+    fn populate_extra(exif: &Exif, md: &mut crate::core::metadata::ImageMetadata) {
         use crate::core::metadata::{MetadataKey, MetadataNamespace};
 
-        for tag in exif {
-            let namespace = match tag.get_group() {
-                ExifTagGroup::GPS => MetadataNamespace::Gps,
-                _ => MetadataNamespace::Exif,
-            };
-            let key = MetadataKey::new(namespace, format!("0x{:04x}", tag.as_u16()));
-            md.insert(key, exif_tag_value(tag));
+        let directories: [(MetadataNamespace, Option<&Ifd>); 5] = [
+            (MetadataNamespace::Exif, Some(exif.image())),
+            (MetadataNamespace::Exif, exif.exif_ifd()),
+            (MetadataNamespace::Gps, exif.gps_ifd()),
+            (MetadataNamespace::Exif, exif.interop_ifd()),
+            (MetadataNamespace::Exif, exif.thumbnail_ifd()),
+        ];
+        for (namespace, ifd) in directories {
+            let Some(ifd) = ifd else { continue };
+            for field in ifd.fields() {
+                let key = MetadataKey::new(namespace, format!("0x{:04x}", field.tag));
+                md.insert(key, exif_value_to_metadata(&field.value));
+            }
         }
     }
 }
 
-/// Convert a single `little_exif` tag into a typed [`MetadataValue`].
-///
-/// Values are decoded little-endian (the endianness requested from
-/// `value_as_u8_vec`). Single-element values collapse to a scalar; multi-element
-/// values become a [`MetadataValue::Array`].
-fn exif_tag_value(tag: &ExifTag) -> crate::core::metadata::MetadataValue {
-    use crate::core::metadata::{MetadataValue, SRational, URational};
-    use little_exif::endian::Endian;
-    use little_exif::exif_tag_format::ExifTagFormat as Fmt;
+/// `N`/`S`/`E`/`W` for a typed GPS hemisphere reference.
+fn gps_reference_char(reference: gamut_exif::GpsReference) -> char {
+    match reference {
+        gamut_exif::GpsReference::North => 'N',
+        gamut_exif::GpsReference::South => 'S',
+        gamut_exif::GpsReference::East => 'E',
+        gamut_exif::GpsReference::West => 'W',
+    }
+}
 
-    let raw = tag.value_as_u8_vec(&Endian::Little);
+/// A text value with trailing NUL padding stripped.
+fn value_text(value: &Value) -> Option<String> {
+    value.as_str().map(|s| s.trim_end_matches('\0').to_string())
+}
+
+/// A non-empty text value of `tag`, NUL padding stripped.
+fn nonempty_text(exif: &Exif, tag: ExifTag) -> Option<String> {
+    exif.get_tag(tag)
+        .and_then(value_text)
+        .filter(|s| !s.is_empty())
+}
+
+/// The first element of an unsigned-integer value, as `u32`.
+fn first_u32(value: &Value) -> Option<u32> {
+    match value {
+        Value::Byte(v) => v.first().map(|&b| u32::from(b)),
+        Value::Short(v) => v.first().map(|&s| u32::from(s)),
+        Value::Long(v) | Value::Ifd(v) => v.first().copied(),
+        _ => None,
+    }
+}
+
+/// The first element of an unsigned-integer value, as `u16`.
+fn first_u16(value: &Value) -> Option<u16> {
+    first_u32(value).and_then(|v| u16::try_from(v).ok())
+}
+
+/// The first element of a `RATIONAL` value, as a [`URational`].
+fn first_urational(value: &Value) -> Option<crate::core::metadata::URational> {
+    match value {
+        Value::Rational(v) => v
+            .first()
+            .map(|&(n, d)| crate::core::metadata::URational::new(n, d)),
+        _ => None,
+    }
+}
+
+/// The first element of an `SRATIONAL` value, as an [`SRational`].
+fn first_srational(value: &Value) -> Option<crate::core::metadata::SRational> {
+    match value {
+        Value::SRational(v) => v
+            .first()
+            .map(|&(n, d)| crate::core::metadata::SRational::new(n, d)),
+        _ => None,
+    }
+}
+
+/// Convert a single `gamut_ifd::Value` into a typed [`MetadataValue`].
+///
+/// Single-element values collapse to a scalar; multi-element values become a
+/// [`MetadataValue::Array`].
+fn exif_value_to_metadata(value: &Value) -> crate::core::metadata::MetadataValue {
+    use crate::core::metadata::{MetadataValue, SRational, URational};
 
     fn collapse(mut vals: Vec<MetadataValue>) -> MetadataValue {
         if vals.len() == 1 {
@@ -553,72 +569,162 @@ fn exif_tag_value(tag: &ExifTag) -> crate::core::metadata::MetadataValue {
         }
     }
 
-    match tag.format() {
-        Fmt::STRING => MetadataValue::Text(
-            String::from_utf8_lossy(&raw)
-                .trim_end_matches('\0')
-                .to_string(),
-        ),
-        Fmt::UNDEF => MetadataValue::Bytes(raw),
-        Fmt::INT8U => collapse(raw.iter().map(|&b| MetadataValue::U64(b as u64)).collect()),
-        Fmt::INT8S => collapse(
-            raw.iter()
-                .map(|&b| MetadataValue::I64(b as i8 as i64))
+    match value {
+        Value::Ascii(s) | Value::Utf8(s) => {
+            MetadataValue::Text(s.trim_end_matches('\0').to_string())
+        }
+        Value::Undefined(b) => MetadataValue::Bytes(b.clone()),
+        Value::Byte(v) => collapse(
+            v.iter()
+                .map(|&b| MetadataValue::U64(u64::from(b)))
                 .collect(),
         ),
-        Fmt::INT16U => collapse(
-            raw.chunks_exact(2)
-                .map(|c| MetadataValue::U64(u16::from_le_bytes([c[0], c[1]]) as u64))
+        Value::SByte(v) => collapse(
+            v.iter()
+                .map(|&b| MetadataValue::I64(i64::from(b)))
                 .collect(),
         ),
-        Fmt::INT16S => collapse(
-            raw.chunks_exact(2)
-                .map(|c| MetadataValue::I64(i16::from_le_bytes([c[0], c[1]]) as i64))
+        Value::Short(v) => collapse(
+            v.iter()
+                .map(|&s| MetadataValue::U64(u64::from(s)))
                 .collect(),
         ),
-        Fmt::INT32U => collapse(
-            raw.chunks_exact(4)
-                .map(|c| MetadataValue::U64(u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64))
+        Value::SShort(v) => collapse(
+            v.iter()
+                .map(|&s| MetadataValue::I64(i64::from(s)))
                 .collect(),
         ),
-        Fmt::INT32S => collapse(
-            raw.chunks_exact(4)
-                .map(|c| MetadataValue::I64(i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i64))
+        Value::Long(v) | Value::Ifd(v) => collapse(
+            v.iter()
+                .map(|&l| MetadataValue::U64(u64::from(l)))
                 .collect(),
         ),
-        Fmt::FLOAT => collapse(
-            raw.chunks_exact(4)
-                .map(|c| MetadataValue::F64(f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64))
+        Value::SLong(v) => collapse(
+            v.iter()
+                .map(|&l| MetadataValue::I64(i64::from(l)))
                 .collect(),
         ),
-        Fmt::DOUBLE => collapse(
-            raw.chunks_exact(8)
-                .map(|c| {
-                    MetadataValue::F64(f64::from_le_bytes([
-                        c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-                    ]))
-                })
+        Value::Float(v) => collapse(
+            v.iter()
+                .map(|&f| MetadataValue::F64(f64::from(f)))
                 .collect(),
         ),
-        Fmt::RATIONAL64U => collapse(
-            raw.chunks_exact(8)
-                .map(|c| {
-                    let num = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    let den = u32::from_le_bytes([c[4], c[5], c[6], c[7]]);
-                    MetadataValue::URational(URational::new(num, den))
-                })
+        Value::Double(v) => collapse(v.iter().map(|&f| MetadataValue::F64(f)).collect()),
+        Value::Rational(v) => collapse(
+            v.iter()
+                .map(|&(n, d)| MetadataValue::URational(URational::new(n, d)))
                 .collect(),
         ),
-        Fmt::RATIONAL64S => collapse(
-            raw.chunks_exact(8)
-                .map(|c| {
-                    let num = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    let den = i32::from_le_bytes([c[4], c[5], c[6], c[7]]);
-                    MetadataValue::SRational(SRational::new(num, den))
-                })
+        Value::SRational(v) => collapse(
+            v.iter()
+                .map(|&(n, d)| MetadataValue::SRational(SRational::new(n, d)))
                 .collect(),
         ),
+        // An entry whose field type is unrecognised: keep the verbatim
+        // value/offset word so nothing is silently dropped.
+        Value::Unknown(u) => MetadataValue::Bytes(u.word().to_vec()),
     }
+}
+
+// ── Container-side EXIF blob location ─────────────────────────────────────────
+//
+// These scanners only *locate* the EXIF payload inside a container; parsing is
+// gamut-exif's job. They migrate behind the gamut codec boundaries (codec-side
+// `MetadataBlock`) with the per-format codec migrations.
+
+/// Extract the EXIF payload of the first JPEG APP1 `Exif\0\0` segment.
+fn extract_exif_from_jpeg(data: &[u8]) -> Option<Vec<u8>> {
+    const EXIF_MARKER: &[u8] = b"Exif\x00\x00";
+    if data.get(..2) != Some(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut pos = 2usize;
+    loop {
+        // Tolerate fill bytes between segments.
+        while *data.get(pos)? == 0xFF && data.get(pos + 1) == Some(&0xFF) {
+            pos += 1;
+        }
+        if *data.get(pos)? != 0xFF {
+            return None;
+        }
+        let marker = *data.get(pos + 1)?;
+        match marker {
+            // Standalone markers (no length field).
+            0xD8 | 0x01 | 0xD0..=0xD7 => {
+                pos += 2;
+                continue;
+            }
+            // Start of scan / end of image: no EXIF ahead of the entropy data.
+            0xDA | 0xD9 => return None,
+            _ => {}
+        }
+        let len = u16::from_be_bytes([*data.get(pos + 2)?, *data.get(pos + 3)?]) as usize;
+        if len < 2 {
+            return None;
+        }
+        let payload = data.get(pos + 4..pos + 2 + len)?;
+        if marker == 0xE1 && payload.starts_with(EXIF_MARKER) {
+            return Some(payload.to_vec());
+        }
+        pos += 2 + len;
+    }
+}
+
+/// Extract the payload of a PNG `eXIf` chunk (a bare TIFF stream).
+fn extract_exif_from_png(data: &[u8]) -> Option<Vec<u8>> {
+    const PNG_SIG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    if data.get(..8) != Some(PNG_SIG) {
+        return None;
+    }
+    let mut pos = 8usize;
+    while let Some(header) = data.get(pos..pos + 8) {
+        let len = u32::from_be_bytes(header[..4].try_into().unwrap()) as usize;
+        let chunk_type = &header[4..8];
+        let payload = data.get(pos + 8..pos + 8 + len)?;
+        if chunk_type == b"eXIf" {
+            return Some(payload.to_vec());
+        }
+        if chunk_type == b"IEND" {
+            return None;
+        }
+        pos += 8 + len + 4; // header + data + CRC
+    }
+    None
+}
+
+/// Extract the payload of a WebP RIFF `EXIF` chunk.
+fn extract_exif_from_webp(data: &[u8]) -> Option<Vec<u8>> {
+    if data.get(..4) != Some(b"RIFF") || data.get(8..12) != Some(b"WEBP") {
+        return None;
+    }
+    let riff_len = u32::from_le_bytes(data.get(4..8)?.try_into().unwrap()) as usize;
+    let end = (8 + riff_len).min(data.len());
+    let mut pos = 12usize;
+    while let Some(header) = data.get(pos..pos + 8) {
+        if pos + 8 > end {
+            return None;
+        }
+        let chunk_type = &header[..4];
+        let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let payload = data.get(pos + 8..pos + 8 + len)?;
+        if chunk_type == b"EXIF" {
+            return Some(payload.to_vec());
+        }
+        pos += 8 + len + (len & 1); // chunks are padded to even sizes
+    }
+    None
+}
+
+/// Extract the EXIF TIFF stream of an AVIF `Exif` item.
+fn extract_exif_from_avif(data: &[u8]) -> Option<Vec<u8>> {
+    let payload = crate::metadata::isobmff::extract_item(data, *b"Exif")?;
+    // ExifDataBlock: a 4-byte offset to the TIFF header, then the payload.
+    let offset = u32::from_be_bytes(payload.get(..4)?.try_into().unwrap()) as usize;
+    let blob = payload
+        .get(4 + offset..)
+        .or_else(|| payload.get(4..))?
+        .to_vec();
+    Some(blob)
 }
 
 #[cfg(test)]
@@ -673,8 +779,9 @@ mod tests {
         let builder = ExifBuilder::new(&md);
         let exif = builder.build();
 
-        // Should have created metadata object (test non-panic)
-        let _ = exif;
+        assert_eq!(exif.make(), Some("SONY"));
+        assert_eq!(exif.iso(), Some(800));
+        assert!(exif.gps_ifd().is_some());
     }
 
     #[test]
@@ -692,23 +799,10 @@ mod tests {
         let md = ImageMetadata::default();
         let builder = ExifBuilder::new(&md);
 
-        // Building Metadata struct should not panic
-        let exif = builder.build();
-        let _ = exif;
-
-        // Note: little_exif panics when serializing completely empty metadata
-        // because it tries to access the first IFD entry which doesn't exist.
-        // This is a library limitation. In practice, we always have at least
-        // Make/Model or other camera info, so this edge case is acceptable.
-        //
-        // We use catch_unwind to verify the panic happens and doesn't crash the test.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let md = ImageMetadata::default();
-            let builder = ExifBuilder::new(&md);
-            builder.build_bytes()
-        }));
-        // Whether it panics or returns an error, the test passes
-        let _ = result;
+        // gamut-exif serialises an empty model to a valid (empty-IFD) TIFF
+        // stream — unlike little_exif, which panicked on this input.
+        let bytes = builder.build_bytes().expect("empty EXIF should serialise");
+        assert!(!bytes.is_empty());
     }
 
     #[test]
@@ -730,5 +824,127 @@ mod tests {
         let bytes = builder.build_bytes().expect("Should build EXIF bytes");
 
         assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn test_build_parse_round_trip() {
+        let md = sample_metadata();
+        let bytes = ExifBuilder::new(&md).build_bytes().expect("build");
+        let parsed = ExifParser::parse_exif_blob(&bytes);
+
+        assert_eq!(parsed.camera.make, "SONY");
+        assert_eq!(parsed.camera.model, "ILCE-6700");
+        assert_eq!(
+            parsed.camera.lens_model.as_deref(),
+            Some("E 18-135mm F3.5-5.6 OSS")
+        );
+        assert_eq!(parsed.exif.iso, Some(800));
+        assert_eq!(parsed.exif.exposure_time, Some(URational::new(1, 250)));
+        assert_eq!(parsed.exif.f_number, Some(URational::new(56, 10)));
+        assert_eq!(parsed.exif.focal_length_35mm, Some(52));
+        assert_eq!(parsed.exif.exposure_program, Some(3));
+        assert_eq!(parsed.exif.metering_mode, Some(5));
+        assert_eq!(
+            parsed.datetime.datetime_original.as_deref(),
+            Some("2025:12:01 14:30:00")
+        );
+        assert_eq!(
+            parsed.gps.latitude,
+            Some([
+                URational::new(40, 1),
+                URational::new(44, 1),
+                URational::new(0, 1),
+            ])
+        );
+        assert_eq!(parsed.gps.latitude_ref, Some('N'));
+        assert_eq!(parsed.gps.longitude_ref, Some('W'));
+        // The generic table mirrors the tags too.
+        assert!(
+            parsed.get(MetadataNamespace::Exif, "0x010f").is_some(),
+            "Make must be mirrored into `extra`"
+        );
+        assert!(
+            parsed.get(MetadataNamespace::Gps, "0x0002").is_some(),
+            "GPSLatitude must be mirrored into `extra`"
+        );
+    }
+
+    #[test]
+    fn test_parse_garbage_returns_default() {
+        assert_eq!(
+            ExifParser::parse_exif_blob(b"not a tiff stream"),
+            ImageMetadata::default()
+        );
+        assert_eq!(
+            ExifParser::parse_from_bytes(b"\x00\x01\x02\x03", ExifContainer::Jpeg),
+            ImageMetadata::default()
+        );
+    }
+
+    #[test]
+    fn test_extract_from_jpeg_app1() {
+        // Wrap the built EXIF blob (marker included) in a minimal JPEG.
+        let md = sample_metadata();
+        let exif = ExifBuilder::new(&md).build();
+        let blob = exif.to_bytes().expect("blob with marker");
+
+        let mut jpeg = Vec::new();
+        jpeg.extend_from_slice(&[0xFF, 0xD8]); // SOI
+        jpeg.extend_from_slice(&[0xFF, 0xE1]); // APP1
+        jpeg.extend_from_slice(&((blob.len() + 2) as u16).to_be_bytes());
+        jpeg.extend_from_slice(&blob);
+        jpeg.extend_from_slice(&[0xFF, 0xD9]); // EOI
+
+        let parsed = ExifParser::parse_from_bytes(&jpeg, ExifContainer::Jpeg);
+        assert_eq!(parsed.camera.make, "SONY");
+        assert_eq!(parsed.exif.iso, Some(800));
+    }
+
+    #[test]
+    fn test_extract_from_png_exif_chunk() {
+        let md = sample_metadata();
+        let tiff = ExifBuilder::new(&md).build_bytes().expect("bare tiff");
+
+        let mut png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        // IHDR (contents irrelevant to the scanner)
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&[0u8; 13]);
+        png.extend_from_slice(&[0u8; 4]); // CRC
+        // eXIf
+        png.extend_from_slice(&(tiff.len() as u32).to_be_bytes());
+        png.extend_from_slice(b"eXIf");
+        png.extend_from_slice(&tiff);
+        png.extend_from_slice(&[0u8; 4]); // CRC
+        // IEND
+        png.extend_from_slice(&0u32.to_be_bytes());
+        png.extend_from_slice(b"IEND");
+        png.extend_from_slice(&[0u8; 4]);
+
+        let parsed = ExifParser::parse_from_bytes(&png, ExifContainer::Png);
+        assert_eq!(parsed.camera.model, "ILCE-6700");
+    }
+
+    #[test]
+    fn test_extract_from_webp_exif_chunk() {
+        let md = sample_metadata();
+        let tiff = ExifBuilder::new(&md).build_bytes().expect("bare tiff");
+
+        let mut chunks = Vec::new();
+        chunks.extend_from_slice(b"EXIF");
+        chunks.extend_from_slice(&(tiff.len() as u32).to_le_bytes());
+        chunks.extend_from_slice(&tiff);
+        if tiff.len() % 2 == 1 {
+            chunks.push(0);
+        }
+
+        let mut webp = Vec::new();
+        webp.extend_from_slice(b"RIFF");
+        webp.extend_from_slice(&((4 + chunks.len()) as u32).to_le_bytes());
+        webp.extend_from_slice(b"WEBP");
+        webp.extend_from_slice(&chunks);
+
+        let parsed = ExifParser::parse_from_bytes(&webp, ExifContainer::WebP);
+        assert_eq!(parsed.exif.exposure_time, Some(URational::new(1, 250)));
     }
 }

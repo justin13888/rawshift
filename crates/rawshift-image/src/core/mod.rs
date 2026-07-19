@@ -14,6 +14,6 @@ pub use rgb_image::RgbImage;
 
 // Re-export IccProfile from the internal metadata module so it remains
 // publicly accessible under `core` as before the workspace split.
-// The type is replaced by `gamut_icc::IccProfile` in the metadata-stack
-// migration (#19), which owns the icc.rs internals wholesale.
+// Its internals are built on `gamut_icc` (metadata-stack migration, #19);
+// the wrapper type stays so the container-append API keeps its home.
 pub use crate::metadata::icc::IccProfile;

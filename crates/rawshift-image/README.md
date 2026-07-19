@@ -86,9 +86,10 @@ crate.
    - `tiff-parser` — internal TIFF structure parser plus the public `TiffParser` API.
    - `serde` — `Serialize`/`Deserialize` for metadata and option types.
    - `zune-runtime` — `zune-core` codec primitives; pulled by zune-backed impls.
-   - `exif` — typed EXIF read/write (`little_exif`); pulled by impls that touch EXIF.
-   - `container-embed` — container segment muxing (`img-parts`); pulled by encode
-     impls that embed EXIF/ICC/XMP.
+   - `exif` — typed EXIF read/write via the gamut metadata stack (`gamut-exif`,
+     `gamut-metadata`, `gamut-xmp`); pulled by impls that touch EXIF.
+   - `container-embed` — container segment muxing (`img-parts`) plus XMP packet
+     validation (`gamut-xmp`); pulled by encode impls that embed EXIF/ICC/XMP.
    - `heic-vendored` — build libheif from source and link it statically, instead
      of linking the system libheif (`heic`). Requires a C/C++ toolchain + cmake.
    - `jxl-encode-libjxl-vendored` — build libjxl from source via cmake and link

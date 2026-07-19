@@ -1,6 +1,12 @@
 //! ICC profile handling for image export.
 //!
-//! Provides ICC profile embedding for JPEG and other formats.
+//! The profile bytes themselves are built and validated with `gamut-icc` (the
+//! upstream home for ICC parsing/serialization); the container embedding paths
+//! (JPEG APP2 via `img-parts`, AVIF/JXL box splicing) stay on this side until
+//! the per-format codec migrations move them behind the gamut codec
+//! boundaries.
+
+use crate::metadata::isobmff::{find_box, patch_iloc_extents, read_u32_be, write_u32_be};
 
 /// Error type for ICC operations.
 #[derive(Debug)]
@@ -48,181 +54,9 @@ impl IccProfile {
     /// This is a minimal sRGB profile suitable for embedding in most images.
     /// The profile is based on the sRGB IEC61966-2.1 specification.
     pub fn srgb() -> Self {
-        Self::create_minimal_srgb()
-    }
-
-    /// Create a minimal sRGB ICC profile programmatically.
-    fn create_minimal_srgb() -> Self {
-        // sRGB primaries and white point (D65) in fixed-point XYZ (s15Fixed16Number)
-        // Values are multiplied by 65536 (16.16 fixed point)
-        const SRGB_RED_X: u32 = 0x00006FA2; // 0.4360
-        const SRGB_RED_Y: u32 = 0x000038F5; // 0.2224
-        const SRGB_RED_Z: u32 = 0x00000390; // 0.0139
-
-        const SRGB_GREEN_X: u32 = 0x00006299; // 0.3851
-        const SRGB_GREEN_Y: u32 = 0x0000B786; // 0.7169
-        const SRGB_GREEN_Z: u32 = 0x00001852; // 0.0971
-
-        const SRGB_BLUE_X: u32 = 0x000024A0; // 0.1431
-        const SRGB_BLUE_Y: u32 = 0x00000F84; // 0.0606
-        const SRGB_BLUE_Z: u32 = 0x0000B6CF; // 0.7141
-
-        const D50_X: u32 = 0x0000F6D6; // 0.9642 (D50 for ICC PCS)
-        const D50_Y: u32 = 0x00010000; // 1.0000
-        const D50_Z: u32 = 0x0000D32D; // 0.8249
-
-        let mut profile = Vec::with_capacity(560);
-
-        // === HEADER (128 bytes) ===
-        let profile_size: u32 = 0; // Will update at end
-        profile.extend_from_slice(&profile_size.to_be_bytes()); // Profile size (offset 0)
-        profile.extend_from_slice(b"\0\0\0\0"); // Preferred CMM (offset 4)
-        profile.extend_from_slice(&[0x02, 0x10, 0x00, 0x00]); // Version 2.1.0 (offset 8)
-        profile.extend_from_slice(b"mntr"); // Device class: monitor (offset 12)
-        profile.extend_from_slice(b"RGB "); // Color space: RGB (offset 16)
-        profile.extend_from_slice(b"XYZ "); // PCS: XYZ (offset 20)
-        profile.extend_from_slice(&[0u8; 12]); // Creation date/time (offset 24)
-        profile.extend_from_slice(b"acsp"); // Profile signature (offset 36)
-        profile.extend_from_slice(b"\0\0\0\0"); // Platform (offset 40)
-        profile.extend_from_slice(&[0u8; 4]); // Flags (offset 44)
-        profile.extend_from_slice(&[0u8; 4]); // Device manufacturer (offset 48)
-        profile.extend_from_slice(&[0u8; 4]); // Device model (offset 52)
-        profile.extend_from_slice(&[0u8; 8]); // Device attributes (offset 56)
-        profile.extend_from_slice(&[0, 0, 0, 0]); // Rendering intent: perceptual (offset 64)
-        // PCS illuminant (D50) (offset 68)
-        profile.extend_from_slice(&D50_X.to_be_bytes());
-        profile.extend_from_slice(&D50_Y.to_be_bytes());
-        profile.extend_from_slice(&D50_Z.to_be_bytes());
-        profile.extend_from_slice(&[0u8; 4]); // Profile creator (offset 80)
-        profile.extend_from_slice(&[0u8; 16]); // Profile ID/MD5 (offset 84)
-        profile.extend_from_slice(&[0u8; 28]); // Reserved (offset 100)
-
-        assert_eq!(profile.len(), 128, "Header must be 128 bytes");
-
-        // === TAG TABLE ===
-        // Tags: wtpt, rXYZ, gXYZ, bXYZ, rTRC, gTRC, bTRC, cprt, desc
-        let tag_count: u32 = 9;
-        profile.extend_from_slice(&tag_count.to_be_bytes());
-
-        // Calculate data offsets
-        // Tag table starts at 128, each entry is 12 bytes
-        // Data starts after 128 + 4 + (9 * 12) = 128 + 4 + 108 = 240
-        let tag_data_start: u32 = 128 + 4 + (tag_count * 12);
-        let mut data_offset = tag_data_start;
-
-        // Helper to add tag entry
-        fn add_tag_entry(buf: &mut Vec<u8>, sig: &[u8; 4], offset: u32, size: u32) {
-            buf.extend_from_slice(sig);
-            buf.extend_from_slice(&offset.to_be_bytes());
-            buf.extend_from_slice(&size.to_be_bytes());
+        Self {
+            data: build_srgb_profile(),
         }
-
-        // XYZ type is 20 bytes: sig(4) + reserved(4) + X(4) + Y(4) + Z(4)
-        // curv type with 1 entry is 14 bytes: sig(4) + reserved(4) + count(4) + gamma(2)
-        // text type is 8 + strlen + 1
-        // desc type is 12 + strlen + 1 (simplified)
-
-        let wtpt_offset = data_offset;
-        add_tag_entry(&mut profile, b"wtpt", wtpt_offset, 20);
-        data_offset += 20;
-
-        let rxyz_offset = data_offset;
-        add_tag_entry(&mut profile, b"rXYZ", rxyz_offset, 20);
-        data_offset += 20;
-
-        let gxyz_offset = data_offset;
-        add_tag_entry(&mut profile, b"gXYZ", gxyz_offset, 20);
-        data_offset += 20;
-
-        let bxyz_offset = data_offset;
-        add_tag_entry(&mut profile, b"bXYZ", bxyz_offset, 20);
-        data_offset += 20;
-
-        // TRC tags can share the same data if identical
-        let trc_offset = data_offset;
-        let trc_size: u32 = 14;
-        add_tag_entry(&mut profile, b"rTRC", trc_offset, trc_size);
-        data_offset += (trc_size + 3) & !3; // Align to 4 bytes
-        add_tag_entry(&mut profile, b"gTRC", trc_offset, trc_size); // Share same data
-        add_tag_entry(&mut profile, b"bTRC", trc_offset, trc_size); // Share same data
-
-        let cprt_text = b"Public Domain";
-        let cprt_size: u32 = 8 + cprt_text.len() as u32 + 1;
-        let cprt_offset = data_offset;
-        add_tag_entry(&mut profile, b"cprt", cprt_offset, cprt_size);
-        data_offset += (cprt_size + 3) & !3;
-
-        let desc_text = b"sRGB";
-        let desc_size: u32 = 12 + desc_text.len() as u32 + 1;
-        let desc_offset = data_offset;
-        add_tag_entry(&mut profile, b"desc", desc_offset, desc_size);
-        let _data_offset = data_offset + ((desc_size + 3) & !3);
-
-        assert_eq!(
-            profile.len(),
-            tag_data_start as usize,
-            "Tag table size mismatch"
-        );
-
-        // === TAG DATA ===
-
-        // wtpt (white point)
-        fn write_xyz(buf: &mut Vec<u8>, x: u32, y: u32, z: u32) {
-            buf.extend_from_slice(b"XYZ ");
-            buf.extend_from_slice(&[0u8; 4]); // Reserved
-            buf.extend_from_slice(&x.to_be_bytes());
-            buf.extend_from_slice(&y.to_be_bytes());
-            buf.extend_from_slice(&z.to_be_bytes());
-        }
-
-        // D50 white point (ICC PCS standard)
-        write_xyz(&mut profile, D50_X, D50_Y, D50_Z);
-
-        // rXYZ (red primary)
-        write_xyz(&mut profile, SRGB_RED_X, SRGB_RED_Y, SRGB_RED_Z);
-
-        // gXYZ (green primary)
-        write_xyz(&mut profile, SRGB_GREEN_X, SRGB_GREEN_Y, SRGB_GREEN_Z);
-
-        // bXYZ (blue primary)
-        write_xyz(&mut profile, SRGB_BLUE_X, SRGB_BLUE_Y, SRGB_BLUE_Z);
-
-        // TRC (gamma curve) - using gamma 2.2 approximation
-        // u8Fixed8Number: 0x0238 ≈ 2.21875
-        let gamma_22: u16 = 0x0238;
-        profile.extend_from_slice(b"curv");
-        profile.extend_from_slice(&[0u8; 4]); // Reserved
-        profile.extend_from_slice(&1u32.to_be_bytes()); // Count = 1 means gamma value
-        profile.extend_from_slice(&gamma_22.to_be_bytes());
-        // Pad to 4 bytes
-        profile.extend_from_slice(&[0u8; 2]);
-
-        // cprt (copyright)
-        profile.extend_from_slice(b"text");
-        profile.extend_from_slice(&[0u8; 4]); // Reserved
-        profile.extend_from_slice(cprt_text);
-        profile.push(0); // Null terminator
-        // Pad to 4 bytes
-        while profile.len() % 4 != 0 {
-            profile.push(0);
-        }
-
-        // desc (description)
-        profile.extend_from_slice(b"desc");
-        profile.extend_from_slice(&[0u8; 4]); // Reserved
-        profile.extend_from_slice(&(desc_text.len() as u32 + 1).to_be_bytes()); // Count
-        profile.extend_from_slice(desc_text);
-        profile.push(0); // Null terminator
-        // Pad to 4 bytes
-        while profile.len() % 4 != 0 {
-            profile.push(0);
-        }
-
-        // Update profile size in header
-        let final_size = profile.len() as u32;
-        profile[0..4].copy_from_slice(&final_size.to_be_bytes());
-
-        Self { data: profile }
     }
 
     /// Create an ICC profile from raw bytes.
@@ -239,14 +73,11 @@ impl IccProfile {
 
     /// Check if this is a valid ICC profile.
     ///
-    /// Performs basic validation by checking the magic bytes.
+    /// Validates by parsing the profile with `gamut-icc` (header, tag table,
+    /// and every tag's element data).
     #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
-        if self.data.len() < 40 {
-            return false;
-        }
-        // ICC magic at offset 36: 'acsp'
-        &self.data[36..40] == b"acsp"
+        gamut_icc::IccProfile::parse(&self.data).is_ok()
     }
 
     /// Append ICC profile to existing JPEG data.
@@ -325,7 +156,7 @@ impl IccProfile {
         // Patch iloc extent offsets: mdat shifted by delta bytes
         let new_meta_end = meta_start + (meta_size as isize + delta) as usize;
         if let Some(iloc_start) = find_box(&data, meta_content_start, new_meta_end, b"iloc") {
-            patch_iloc_extents(&mut data, iloc_start, delta)?;
+            patch_iloc_extents(&mut data, iloc_start, delta).map_err(IccError::Container)?;
         }
 
         Ok(data)
@@ -379,126 +210,83 @@ impl IccProfile {
     }
 }
 
-// --- Private ISOBMFF / JXL container helpers ---
-
-fn read_u32_be(data: &[u8], offset: usize) -> u32 {
-    u32::from_be_bytes(data[offset..offset + 4].try_into().unwrap())
-}
-
-fn write_u32_be(data: &mut [u8], offset: usize, value: u32) {
-    data[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
-}
-
-fn read_uint_be(data: &[u8], offset: usize, size: usize) -> u64 {
-    match size {
-        0 => 0,
-        1 => data[offset] as u64,
-        2 => u16::from_be_bytes(data[offset..offset + 2].try_into().unwrap()) as u64,
-        4 => u32::from_be_bytes(data[offset..offset + 4].try_into().unwrap()) as u64,
-        8 => u64::from_be_bytes(data[offset..offset + 8].try_into().unwrap()),
-        _ => 0,
-    }
-}
-
-fn write_uint_be(data: &mut [u8], offset: usize, size: usize, value: u64) {
-    match size {
-        0 => {}
-        1 => data[offset] = value as u8,
-        2 => data[offset..offset + 2].copy_from_slice(&(value as u16).to_be_bytes()),
-        4 => data[offset..offset + 4].copy_from_slice(&(value as u32).to_be_bytes()),
-        8 => data[offset..offset + 8].copy_from_slice(&value.to_be_bytes()),
-        _ => {}
-    }
-}
-
-/// Find the first box of `box_type` in byte range `[start, end)`.
-fn find_box(data: &[u8], start: usize, end: usize, box_type: &[u8; 4]) -> Option<usize> {
-    let mut pos = start;
-    while pos + 8 <= end.min(data.len()) {
-        let size = read_u32_be(data, pos) as usize;
-        if size < 8 || pos + size > data.len() {
-            break;
-        }
-        if &data[pos + 4..pos + 8] == box_type {
-            return Some(pos);
-        }
-        pos += size;
-    }
-    None
-}
-
-/// Patch iloc extent offsets by adding `delta` (mdat shifted by this amount).
-fn patch_iloc_extents(data: &mut [u8], iloc_start: usize, delta: isize) -> Result<(), IccError> {
-    if iloc_start + 16 > data.len() {
-        return Err(IccError::Container("iloc box too small".into()));
-    }
-    // FullBox: size(4)+type(4)+version(1)+flags(3); version at +8
-    let version = data[iloc_start + 8];
-    // Nibble fields at +12 and +13
-    let offset_size = ((data[iloc_start + 12] >> 4) & 0xF) as usize;
-    let length_size = (data[iloc_start + 12] & 0xF) as usize;
-    let base_offset_size = ((data[iloc_start + 13] >> 4) & 0xF) as usize;
-    let index_size = if version >= 1 {
-        (data[iloc_start + 13] & 0xF) as usize
-    } else {
-        0
-    };
-    let (item_count, mut pos) = if version < 2 {
-        let count = u16::from_be_bytes([data[iloc_start + 14], data[iloc_start + 15]]) as usize;
-        (count, iloc_start + 16)
-    } else {
-        let count = read_u32_be(data, iloc_start + 14) as usize;
-        (count, iloc_start + 18)
+/// Build the minimal sRGB profile bytes from gamut-icc typed parts.
+///
+/// A v2.1 display profile carrying the sRGB colorants under the D50 PCS
+/// (chromatically adapted, the exact `s15Fixed16` encodings the previous
+/// hand-rolled profile used), a shared gamma-2.2 tone curve (`u8Fixed8`
+/// `0x0238`), a description, and a copyright tag.
+fn build_srgb_profile() -> Vec<u8> {
+    use gamut_icc::{
+        ColorSpace, Curve, DeviceClass, IccProfile as GamutIccProfile, ProfileHeader,
+        ProfileVersion, S15Fixed16, Signature, TagData, TextDescription, U8Fixed8, XyzNumber,
     };
 
-    for _ in 0..item_count {
-        // item_id
-        pos += if version < 2 { 2 } else { 4 };
-        // construction_method (v1/2)
-        if version >= 1 {
-            pos += 2;
-        }
-        // data_reference_index
-        pos += 2;
-        // base_data_offset (patch if stored and non-zero)
-        if base_offset_size > 0 {
-            if pos + base_offset_size > data.len() {
-                return Err(IccError::Container("iloc base_data_offset OOB".into()));
-            }
-            let v = read_uint_be(data, pos, base_offset_size);
-            if v > 0 {
-                write_uint_be(
-                    data,
-                    pos,
-                    base_offset_size,
-                    (v as i64 + delta as i64) as u64,
-                );
-            }
-        }
-        pos += base_offset_size;
-        // extent_count
-        if pos + 2 > data.len() {
-            return Err(IccError::Container("iloc extent_count OOB".into()));
-        }
-        let extent_count = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2;
-        for _ in 0..extent_count {
-            if version >= 1 {
-                pos += index_size;
-            }
-            // extent_offset — patch
-            if offset_size > 0 {
-                if pos + offset_size > data.len() {
-                    return Err(IccError::Container("iloc extent_offset OOB".into()));
-                }
-                let v = read_uint_be(data, pos, offset_size);
-                write_uint_be(data, pos, offset_size, (v as i64 + delta as i64) as u64);
-            }
-            pos += offset_size;
-            pos += length_size;
-        }
-    }
-    Ok(())
+    let xyz = |x: i32, y: i32, z: i32| {
+        TagData::Xyz(vec![XyzNumber {
+            x: S15Fixed16(x),
+            y: S15Fixed16(y),
+            z: S15Fixed16(z),
+        }])
+    };
+    // Gamma 2.2 approximation as u8Fixed8 (0x0238 ≈ 2.21875).
+    let trc = TagData::Curve(Curve::Gamma(U8Fixed8(0x0238)));
+
+    let mut header = ProfileHeader::new(DeviceClass::Display, ColorSpace::Rgb);
+    // v2.1, matching the widest-compatibility profile this crate always
+    // embedded (v2 uses the `desc`/`text` element types below).
+    header.version = ProfileVersion {
+        major: 2,
+        minor: 1,
+        bugfix: 0,
+    };
+    // `ProfileHeader::new` already sets the mandated D50 PCS illuminant.
+    debug_assert_eq!(header.pcs_illuminant, XyzNumber::D50);
+
+    let profile = GamutIccProfile {
+        header,
+        tags: vec![
+            (
+                Signature(*b"desc"),
+                TagData::TextDescription(TextDescription {
+                    ascii: "sRGB".into(),
+                    unicode_language: 0,
+                    unicode: String::new(),
+                    script_code: 0,
+                    macintosh: Vec::new(),
+                }),
+            ),
+            (Signature(*b"cprt"), TagData::Text("Public Domain".into())),
+            // Media white point: D50 (ICC PCS standard).
+            (
+                Signature(*b"wtpt"),
+                xyz(0x0000_F6D6, 0x0001_0000, 0x0000_D32D),
+            ),
+            // sRGB colorants, D50-adapted.
+            (
+                Signature(*b"rXYZ"),
+                xyz(0x0000_6FA2, 0x0000_38F5, 0x0000_0390),
+            ),
+            (
+                Signature(*b"gXYZ"),
+                xyz(0x0000_6299, 0x0000_B786, 0x0000_1852),
+            ),
+            (
+                Signature(*b"bXYZ"),
+                xyz(0x0000_24A0, 0x0000_0F84, 0x0000_B6CF),
+            ),
+            (Signature(*b"rTRC"), trc.clone()),
+            (Signature(*b"gTRC"), trc.clone()),
+            (Signature(*b"bTRC"), trc),
+        ],
+    };
+
+    // The model above is fixed, spec-valid data; serialization can only fail
+    // on hand-built invariant violations (duplicate signatures, contradictory
+    // LUT shapes), none of which apply here.
+    profile
+        .to_bytes()
+        .expect("static sRGB profile must serialize")
 }
 
 /// Return the offset at which to insert an `iccp` box in a JXL container.
@@ -567,6 +355,33 @@ mod tests {
 
         // Check color space 'RGB ' at offset 16
         assert_eq!(&bytes[16..20], b"RGB ", "Color space should be 'RGB '");
+    }
+
+    #[test]
+    fn test_srgb_profile_content() {
+        // The typed values must survive a parse round-trip with the exact
+        // fixed-point encodings the previous hand-rolled profile carried.
+        use gamut_icc::{KnownTag, S15Fixed16, TagData};
+
+        let parsed = gamut_icc::IccProfile::parse(IccProfile::srgb().as_bytes()).expect("parse");
+        match parsed.get(KnownTag::RedColorant) {
+            Some(TagData::Xyz(v)) => {
+                assert_eq!(v[0].x, S15Fixed16(0x0000_6FA2));
+                assert_eq!(v[0].y, S15Fixed16(0x0000_38F5));
+                assert_eq!(v[0].z, S15Fixed16(0x0000_0390));
+            }
+            other => panic!("rXYZ must be an XYZ tag, got {other:?}"),
+        }
+        match parsed.get(KnownTag::MediaWhitePoint) {
+            Some(TagData::Xyz(v)) => {
+                assert_eq!(v[0].y, S15Fixed16(0x0001_0000));
+            }
+            other => panic!("wtpt must be an XYZ tag, got {other:?}"),
+        }
+        assert!(
+            matches!(parsed.get(KnownTag::RedTrc), Some(TagData::Curve(_))),
+            "rTRC must be a curve tag"
+        );
     }
 
     #[test]

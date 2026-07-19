@@ -1639,8 +1639,7 @@ pub fn read_standard_image_metadata(
     data: &[u8],
     format: StandardFormat,
 ) -> crate::core::metadata::ImageMetadata {
-    use crate::metadata::exif::ExifParser;
-    use little_exif::filetype::FileExtension;
+    use crate::metadata::exif::{ExifContainer, ExifParser};
 
     // HEIC goes through libheif so that ICC and XMP are extracted alongside EXIF.
     #[cfg(feature = "heic-decode")]
@@ -1648,19 +1647,17 @@ pub fn read_standard_image_metadata(
         return crate::formats::heic::read_heic_metadata(data);
     }
 
-    let file_type = match format {
-        StandardFormat::Jpeg => FileExtension::JPEG,
-        StandardFormat::Tiff => FileExtension::TIFF,
-        StandardFormat::WebP => FileExtension::WEBP,
-        StandardFormat::Avif => FileExtension::HEIF,
-        StandardFormat::Png => FileExtension::PNG {
-            as_zTXt_chunk: false,
-        },
-        // Formats with no EXIF support in little_exif
+    let container = match format {
+        StandardFormat::Jpeg => ExifContainer::Jpeg,
+        StandardFormat::Tiff => ExifContainer::Tiff,
+        StandardFormat::WebP => ExifContainer::WebP,
+        StandardFormat::Avif => ExifContainer::Avif,
+        StandardFormat::Png => ExifContainer::Png,
+        // Formats without an EXIF extraction path (GIF, SVG, JXL, …)
         _ => return crate::core::metadata::ImageMetadata::default(),
     };
 
-    ExifParser::parse_from_bytes(data, file_type)
+    ExifParser::parse_from_bytes(data, container)
 }
 
 /// Extract EXIF metadata from a standard image without decoding pixel data.
@@ -2549,7 +2546,7 @@ mod tests {
 
     #[test]
     fn read_metadata_invalid_data_returns_default() {
-        // Garbage data → little_exif returns error → we return default
+        // Garbage data → no EXIF segment found → we return default
         let junk = b"\x00\x01\x02\x03\x04\x05\x06\x07";
         let md = read_standard_image_metadata(junk, StandardFormat::Jpeg);
         assert!(md.camera.make.is_empty());
