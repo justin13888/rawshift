@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/justin13888/rawshift/compare/v0.1.1...v0.2.0) - 2026-07-19
+
+### Added
+
+- *(core)* [**breaking**] replace generic primitives with gamut re-exports, keep sensor types
+- *(image)* add libaom as an optional AVIF encoder backend
+- *(dng)* [**breaking**] migrate DNG decode/encode to gamut-dng; delete the binrw TIFF layer
+- *(formats)* [**breaking**] migrate ARW/CR2/NEF/CR3 IFD walking to gamut-ifd
+- *(metadata)* [**breaking**] migrate metadata stack to gamut-exif/gamut-icc/gamut-xmp
+- *(deps)* add gamut as pinned git dependency and raise MSRV to 1.92
+
+### Other
+
+- Merge pull request #40 from justin13888/17-add-gamut-pinned-git-dependency
+- *(video)* park rawshift-video as an unpublished placeholder for v1
+- add v1 design doc, permanent support matrix, and gamut policy
+- Revise Scope section and add key priorities
+- Update README with project status and scope
+- Merge branch 'master' into avif-libaom-encoder
+
 ## [0.1.1](https://github.com/justin13888/rawshift/compare/v0.1.0...v0.1.1) - 2026-05-29
 
 ### Added

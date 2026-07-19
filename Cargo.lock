@@ -1965,14 +1965,14 @@ dependencies = [
 
 [[package]]
 name = "rawshift"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rawshift-image",
 ]
 
 [[package]]
 name = "rawshift-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "gamut-color",
  "gamut-core",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "rawshift-image"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "avif-serialize",
  "bindgen",
@@ -2028,7 +2028,7 @@ dependencies = [
 
 [[package]]
 name = "rawshift-video"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "rayon"
