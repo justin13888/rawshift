@@ -40,6 +40,10 @@ gamut-ifd      = { workspace = true, optional = true, features = ["bigtiff"] }
 # uncompressed LinearRaw DNGs today.
 gamut-dng      = { workspace = true, optional = true }
 gamut-metadata = { workspace = true, optional = true }
+# gamut-png backs PNG encode (PngEncoder: 8/16-bit RGB, DEFLATE level + filter
+# strategy + lossless auto-reduce, and eXIf/iCCP/XMP-iTXt chunk embedding).
+# PNG decode stays on zune-png until the gamut decoder migration (#32).
+gamut-png      = { workspace = true, optional = true }
 gamut-xmp      = { workspace = true, optional = true }
 libheif-rs     = { version = "2.7",    optional = true }
 libwebp-sys    = { version = "0.14",   optional = true }
@@ -105,7 +109,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #   tier 4  implementation     jpeg-decode-zune, …          (compressed only)
 #   tier 5  infrastructure     ifd-parser, serde, zune-runtime, exif, …
 #
-# Only tier-4 features (and RAW tier-3 features) reference `dep:*`.
+# Only tier-4 features (plus RAW tier-3 features and the gamut-backed
+# `png-encode`, which have a single implementation) reference `dep:*`.
 default = ["jpeg", "png", "webp", "jxl-decode", "gif-decode", "tiff-decode", "ppm-decode"]
 
 # ── Tier 1: bundle features ───────────────────────────────────────────────────
@@ -142,7 +147,11 @@ raf  = ["raf-decode"]
 jpeg-decode = ["jpeg-decode-zune"]
 jpeg-encode = ["jpeg-encode-jpeg-enc"]
 png-decode  = ["png-decode-zune"]
-png-encode  = ["png-encode-zune"]
+# PNG encode is backed directly by gamut-png (no tier-4 layer): like the RAW
+# direction features, it has a single gamut-backed implementation, so the
+# format-direction feature itself pulls the dependency. `exif` supplies the
+# ExifBuilder used to serialise the eXIf chunk payload.
+png-encode  = ["dep:gamut-png", "exif"]
 webp-decode = ["webp-decode-libwebp"]
 webp-encode = ["webp-encode-libwebp"]
 jxl-decode  = ["jxl-decode-jxl-oxide"]
@@ -185,7 +194,6 @@ jpeg-encode-jpeg-enc = ["jpeg-encode", "dep:jpeg-encoder", "exif", "container-em
 # libjpegli by default — see `jpeg-encode-jpegli-vendored`.
 jpeg-encode-jpegli   = ["jpeg-encode", "exif", "container-embed", "dep:bindgen", "dep:cc", "dep:pkg-config"]
 png-decode-zune      = ["png-decode", "dep:zune-png", "zune-runtime", "exif"]
-png-encode-zune      = ["png-encode", "dep:zune-png", "zune-runtime", "exif", "container-embed"]
 webp-decode-libwebp  = ["webp-decode", "dep:libwebp-sys", "exif"]
 webp-encode-libwebp  = ["webp-encode", "dep:libwebp-sys", "exif", "container-embed"]
 jxl-decode-jxl-oxide = ["jxl-decode", "dep:jxl-oxide"]

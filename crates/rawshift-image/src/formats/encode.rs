@@ -36,7 +36,7 @@ pub fn encode_rgb_image_to_vec(
 ) -> RawResult<Vec<u8>> {
     match encode_options {
         #[cfg(feature = "png-encode")]
-        EncodeOptions::PngZune(cfg) => encode_png(image, metadata, cfg),
+        EncodeOptions::PngGamut(cfg) => encode_png(image, metadata, cfg),
         #[cfg(feature = "jpeg-encode")]
         EncodeOptions::JpegJpegEnc(cfg) => encode_jpeg(image, metadata, cfg),
         #[cfg(feature = "jpeg-encode-jpegli")]
@@ -123,89 +123,91 @@ fn check_8bit_backend(bit_depth: BitDepth, format: &'static str) -> Result<(), E
 fn encode_png(
     image: &RgbImage,
     metadata: &ImageMetadata,
-    cfg: &super::export::ZunePngEncodeConfig,
+    cfg: &super::export::PngEncodeConfig,
 ) -> RawResult<Vec<u8>> {
-    use zune_core::colorspace::ColorSpace as ZuneColorSpace;
-    use zune_core::options::EncoderOptions;
-    use zune_png::PngEncoder;
+    use super::export::{PngCompressionLevel, PngFilterStrategy, PngFilterType};
+    use crate::metadata::exif::ExifBuilder;
+    use crate::metadata::icc::IccProfile;
+    use gamut_core::{Dimensions, EncodeImage, ImageRef, Rgb8, Rgb16};
+    use gamut_png::{FilterStrategy, FilterType, Level, PngEncoder};
 
-    // PNG genuinely supports 8- and 16-bit output.
-    let (data_bytes, depth) = match cfg.common.bit_depth {
-        BitDepth::Eight => (pack_rgb8(image), zune_core::bit_depth::BitDepth::Eight),
+    let encoding_error = |e: gamut_core::Error| {
+        RawError::Encode(EncodeError::Encoding {
+            format: "PNG",
+            message: format!("PNG encoding error: {e}"),
+        })
+    };
+
+    let dims = Dimensions::new(image.width(), image.height()).map_err(encoding_error)?;
+
+    let level = match cfg.compression {
+        PngCompressionLevel::Store => Level::Store,
+        PngCompressionLevel::Fast => Level::Fast,
+        PngCompressionLevel::Default => Level::Default,
+        PngCompressionLevel::Best => Level::Best,
+    };
+    let filter = match cfg.filter {
+        PngFilterStrategy::None => FilterStrategy::None,
+        PngFilterStrategy::Fixed(t) => FilterStrategy::Fixed(match t {
+            PngFilterType::None => FilterType::None,
+            PngFilterType::Sub => FilterType::Sub,
+            PngFilterType::Up => FilterType::Up,
+            PngFilterType::Average => FilterType::Average,
+            PngFilterType::Paeth => FilterType::Paeth,
+        }),
+        PngFilterStrategy::MinSumAbs => FilterStrategy::MinSumAbs,
+        PngFilterStrategy::BruteForce => FilterStrategy::BruteForce,
+    };
+
+    let mut encoder = PngEncoder::new()
+        .with_compression(level)
+        .with_filter(filter)
+        .with_auto_reduce(cfg.auto_reduce);
+
+    // Metadata is embedded by the encoder itself (eXIf / iCCP / XMP iTXt
+    // chunks), so it is configured up front — no post-hoc chunk muxing.
+    let m = &cfg.common.metadata;
+    if m.embed_icc {
+        // "ICC Profile" is the conventional iCCP profile name.
+        encoder = encoder.with_icc_profile("ICC Profile", IccProfile::srgb().as_bytes());
+    }
+    if m.embed_exif {
+        match ExifBuilder::new(metadata).build_bytes() {
+            Ok(bytes) => encoder = encoder.with_exif(&bytes),
+            Err(e) => tracing::warn!("Failed to embed EXIF in PNG: {e}"),
+        }
+    }
+    if m.embed_xmp
+        && let Some(xmp_data) = &metadata.xmp
+    {
+        match std::str::from_utf8(xmp_data) {
+            Ok(xmp) => encoder = encoder.with_xmp(xmp),
+            Err(e) => tracing::warn!("Failed to embed XMP in PNG (not valid UTF-8): {e}"),
+        }
+    }
+
+    // PNG genuinely supports 8- and 16-bit output; gamut-png encodes Rgb16
+    // directly (serialising big-endian itself), so no byte packing is needed.
+    let mut output = Vec::new();
+    match cfg.common.bit_depth {
+        BitDepth::Eight => {
+            let samples = pack_rgb8(image);
+            let img = ImageRef::<Rgb8>::new(&samples, dims).map_err(encoding_error)?;
+            encoder
+                .encode_image(img, &mut output)
+                .map_err(encoding_error)?;
+        }
         BitDepth::Sixteen => {
-            let mut bytes = Vec::with_capacity(image.data().len() * 2);
-            for &pixel in image.data() {
-                bytes.extend_from_slice(&pixel.to_be_bytes());
-            }
-            (bytes, zune_core::bit_depth::BitDepth::Sixteen)
+            let img = ImageRef::<Rgb16>::new(image.data(), dims).map_err(encoding_error)?;
+            encoder
+                .encode_image(img, &mut output)
+                .map_err(encoding_error)?;
         }
         other => {
             return Err(RawError::Encode(EncodeError::UnsupportedBitDepth {
                 format: "PNG",
                 requested: other,
             }));
-        }
-    };
-
-    let options = EncoderOptions::default()
-        .set_width(image.width() as usize)
-        .set_height(image.height() as usize)
-        .set_colorspace(ZuneColorSpace::RGB)
-        .set_depth(depth);
-
-    let mut encoder = PngEncoder::new(&data_bytes, options);
-    let mut output = Vec::new();
-    encoder.encode(&mut output).map_err(|e| {
-        RawError::Encode(EncodeError::Encoding {
-            format: "PNG",
-            message: format!("PNG encoding error: {e:?}"),
-        })
-    })?;
-
-    let m = &cfg.common.metadata;
-    if m.embed_exif || m.embed_icc || m.embed_xmp {
-        use crate::metadata::exif::ExifBuilder;
-        use crate::metadata::icc::IccProfile;
-        use img_parts::png::{Png, PngChunk};
-        use img_parts::{Bytes, ImageEXIF, ImageICC};
-
-        match Png::from_bytes(Bytes::from(output.clone())) {
-            Ok(mut png) => {
-                if m.embed_icc {
-                    let icc = IccProfile::srgb();
-                    png.set_icc_profile(Some(Bytes::from(icc.as_bytes().to_vec())));
-                }
-                if m.embed_exif {
-                    let exif_builder = ExifBuilder::new(metadata);
-                    match exif_builder.build_bytes() {
-                        Ok(bytes) => png.set_exif(Some(Bytes::from(bytes))),
-                        Err(e) => tracing::warn!("Failed to embed EXIF in PNG: {e}"),
-                    }
-                }
-                if m.embed_xmp
-                    && let Some(xmp_data) = &metadata.xmp
-                {
-                    // iTXt: keyword\0 + compression_flag + compression_method
-                    //       + language_tag\0 + translated_keyword\0 + text
-                    let mut chunk_data = Vec::with_capacity(22 + xmp_data.len());
-                    chunk_data.extend_from_slice(b"XML:com.adobe.xmp\0");
-                    chunk_data.push(0); // compression_flag = 0
-                    chunk_data.push(0); // compression_method = 0
-                    chunk_data.push(0); // language_tag (empty)
-                    chunk_data.push(0); // translated_keyword (empty)
-                    chunk_data.extend_from_slice(xmp_data);
-                    let chunk = PngChunk::new(*b"iTXt", Bytes::from(chunk_data));
-                    let idx = png.chunks().len().saturating_sub(1);
-                    png.chunks_mut().insert(idx, chunk);
-                }
-                use std::io::Cursor;
-                let mut buf = Cursor::new(Vec::new());
-                match png.encoder().write_to(&mut buf) {
-                    Ok(_) => output = buf.into_inner(),
-                    Err(e) => tracing::warn!("Failed to write PNG with metadata: {e}"),
-                }
-            }
-            Err(e) => tracing::warn!("Failed to parse PNG for metadata embedding: {e}"),
         }
     }
 

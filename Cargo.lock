@@ -822,6 +822,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "gamut-deflate"
+version = "0.1.0"
+source = "git+https://github.com/justin13888/gamut?rev=dde9f640ab02ec9c3437c3f1181164f6e7c60151#dde9f640ab02ec9c3437c3f1181164f6e7c60151"
+
+[[package]]
 name = "gamut-dng"
 version = "1.0.0"
 source = "git+https://github.com/justin13888/gamut?rev=dde9f640ab02ec9c3437c3f1181164f6e7c60151#dde9f640ab02ec9c3437c3f1181164f6e7c60151"
@@ -891,6 +896,17 @@ dependencies = [
  "gamut-iptc",
  "gamut-xmp",
  "thiserror",
+]
+
+[[package]]
+name = "gamut-png"
+version = "0.1.0"
+source = "git+https://github.com/justin13888/gamut?rev=dde9f640ab02ec9c3437c3f1181164f6e7c60151#dde9f640ab02ec9c3437c3f1181164f6e7c60151"
+dependencies = [
+ "gamut-codec-abi",
+ "gamut-core",
+ "gamut-deflate",
+ "miniz_oxide",
 ]
 
 [[package]]
@@ -1997,6 +2013,7 @@ dependencies = [
  "gamut-icc",
  "gamut-ifd",
  "gamut-metadata",
+ "gamut-png",
  "gamut-xmp",
  "gif",
  "image",
