@@ -9,12 +9,16 @@
 //!
 //! Per `PRINCIPLES.md`, **all** platform FFI for hardware decode lives in this
 //! crate and nowhere else: `#![deny(unsafe_op_in_unsafe_fn)]`, every public
-//! item is safe, and every future `unsafe` block must document its invariants
-//! inside the platform backend module that owns it. This revision ships **no
-//! platform code at all** (and therefore no `unsafe`): the backends land as
-//! separate issues (VAAPI is next), and until one lands every entry point
-//! reports "no decoder" — [`decoder`] returns `None`, [`backend`] returns
-//! `None`, and [`available_codecs`] is empty.
+//! item is safe, and every `unsafe` block documents its invariants inside the
+//! platform backend module that owns it. The **VAAPI backend** (linux-gnu,
+//! dlopen'd libva — see the `vaapi` module) is implemented; VideoToolbox and
+//! MediaCodec land as separate issues. On targets/builds with no backend
+//! every entry point reports "no decoder" — [`decoder`] returns `None`,
+//! [`backend`] returns `None`, and [`available_codecs`] is empty.
+//!
+//! On NVIDIA GPUs the VAAPI backend works through the maintained
+//! [`nvidia-vaapi-driver`](https://github.com/elFarto/nvidia-vaapi-driver)
+//! translation layer over NVDEC (see `docs/SUPPORT.md`).
 //!
 //! ## Verified feature flags
 //!
@@ -43,6 +47,11 @@
 //! [`docs/SUPPORT.md`]: https://github.com/justin13888/rawshift/blob/master/docs/SUPPORT.md
 
 #![deny(unsafe_op_in_unsafe_fn)]
+
+// The VAAPI platform backend: compiled only when build.rs selected it
+// (`vaapi` explicit flag, or `hw` on a linux-gnu target).
+#[cfg(hwdec_backend = "vaapi")]
+mod vaapi;
 
 // ── Verified feature boundaries ─────────────────────────────────────────────
 // Explicit backend flags are hard errors on targets whose platform API does
@@ -461,55 +470,99 @@ pub enum HwDecodeError {
     },
 }
 
-// ── Backend discovery (stub until the platform backends land) ───────────────
+// ── Backend discovery ───────────────────────────────────────────────────────
 
 /// Returns a decoder for `codec`, or `None` when no compiled-in backend can
 /// decode it at runtime.
 ///
-/// No platform backend is implemented yet (they land as separate issues;
-/// VAAPI is next), so this currently returns `None` on every target and
-/// feature combination.
+/// With the VAAPI backend compiled in (`vaapi`, or `hw` on linux-gnu), this
+/// dlopens libva on first use and answers from the driver's actual
+/// profile/entrypoint list; missing libraries, render nodes, or driver
+/// support all degrade to `None` (never a link or startup failure).
+/// VideoToolbox and MediaCodec land as separate issues; without a backend
+/// this returns `None` everywhere.
 #[must_use]
 pub fn decoder(codec: HwCodec) -> Option<Box<dyn HwStillDecoder>> {
-    let _ = codec;
-    None
+    #[cfg(hwdec_backend = "vaapi")]
+    {
+        vaapi::decoder(codec)
+    }
+    #[cfg(not(hwdec_backend = "vaapi"))]
+    {
+        let _ = codec;
+        None
+    }
 }
 
 /// The platform backend compiled into this build and usable at runtime, or
 /// `None`.
 ///
-/// No platform backend is implemented yet, so this currently returns `None`
-/// everywhere; once a backend lands it reports `Some` only when the runtime
-/// probe succeeds (e.g. VAAPI's dlopen finding a usable driver).
+/// Reports `Some` only when the runtime probe succeeds (e.g. VAAPI's dlopen
+/// finding a driver with at least one supported codec at the VLD entry
+/// point).
 #[must_use]
 pub fn backend() -> Option<HwBackend> {
-    None
+    #[cfg(hwdec_backend = "vaapi")]
+    {
+        vaapi::backend()
+    }
+    #[cfg(not(hwdec_backend = "vaapi"))]
+    {
+        None
+    }
 }
 
-/// The codecs [`decoder`] can currently return a decoder for.
+/// The codecs [`decoder`] can currently return a decoder for, per the
+/// runtime probe (e.g. `vaQueryConfigProfiles` for VAAPI).
 ///
-/// Empty until a platform backend lands.
+/// Empty when no backend is compiled in or usable.
 #[must_use]
 pub fn available_codecs() -> &'static [HwCodec] {
-    &[]
+    #[cfg(hwdec_backend = "vaapi")]
+    {
+        vaapi::available_codecs()
+    }
+    #[cfg(not(hwdec_backend = "vaapi"))]
+    {
+        &[]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── stub behaviour ──────────────────────────────────────────────────────
+    // ── stub behaviour (builds with no selected backend) ────────────────────
 
+    #[cfg(not(hwdec_backend = "vaapi"))]
     #[test]
     fn stub_has_no_decoder_for_any_codec() {
         assert!(decoder(HwCodec::Hevc).is_none());
         assert!(decoder(HwCodec::Av1).is_none());
     }
 
+    #[cfg(not(hwdec_backend = "vaapi"))]
     #[test]
     fn stub_reports_no_backend_and_no_codecs() {
         assert_eq!(backend(), None);
         assert!(available_codecs().is_empty());
+    }
+
+    // ── backend discovery consistency (any build) ───────────────────────────
+
+    /// `decoder()`, `backend()`, and `available_codecs()` must agree with
+    /// each other whether or not a platform backend/driver is present.
+    #[test]
+    fn discovery_entry_points_are_consistent() {
+        let codecs = available_codecs();
+        assert_eq!(backend().is_some(), !codecs.is_empty());
+        for codec in [HwCodec::Hevc, HwCodec::Av1] {
+            assert_eq!(
+                decoder(codec).is_some(),
+                codecs.contains(&codec),
+                "decoder({codec}) must match available_codecs()"
+            );
+        }
     }
 
     // ── request construction ────────────────────────────────────────────────

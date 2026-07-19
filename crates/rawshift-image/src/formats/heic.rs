@@ -960,14 +960,23 @@ mod tests {
         );
     }
 
-    /// Until a platform backend lands (VAAPI is next), every pixel decode —
-    /// with or without the `hw` feature — reports the matchable
-    /// `HwDecoderUnavailable`, while enumeration/metadata keep working.
+    /// Pixel decode of the synthetic container is honest about the build and
+    /// machine: without a usable hardware backend it reports the matchable
+    /// `HwDecoderUnavailable`; with one (VAAPI, #29) the synthetic stream —
+    /// whose `hvcC` carries no parameter sets — is rejected by the real
+    /// decoder as malformed, **not** as "unavailable". Enumeration/metadata
+    /// keep working either way.
     #[test]
     fn pixel_decode_reports_hw_decoder_unavailable() {
         let file = HeicFile::open(synthetic_heic()).expect("open synthetic HEIC");
-        assert!(!heic_hw_decode_available());
         let err = file.decode_primary().unwrap_err();
+        if heic_hw_decode_available() {
+            assert!(
+                matches!(err, RawError::Format(_)),
+                "a real decoder must reject the synthetic stream as malformed, got: {err}"
+            );
+            return;
+        }
         assert!(
             matches!(err, RawError::HwDecoderUnavailable { codec: "HEVC", .. }),
             "expected HwDecoderUnavailable, got: {err}"

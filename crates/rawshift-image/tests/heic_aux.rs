@@ -2,10 +2,11 @@
 //!
 //! These exercise the `HeicFile` API on gamut-heic. Container parsing,
 //! metadata extraction, and auxiliary-image enumeration are **backend-less**
-//! — they must pass with no hardware HEVC decoder at all. Pixel decode is
-//! asserted to report the matchable `RawError::HwDecoderUnavailable` until a
-//! rawshift-hwdec platform backend lands (VAAPI is #29); those assertions
-//! flip to real decode checks then.
+//! — they must pass with no hardware HEVC decoder at all. Pixel decode
+//! adapts to the build: with a usable rawshift-hwdec backend (VAAPI, #29) it
+//! must really decode; without one it must report the matchable
+//! `RawError::HwDecoderUnavailable`. The dedicated hardware end-to-end
+//! assertions live in `heic_hw_decode.rs`.
 //!
 //! Two fixture sources:
 //! - A synthetic HEIF container (built with gamut-isobmff) that always runs.
