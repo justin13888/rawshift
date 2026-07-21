@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 v1 is the gamut migration release: rawshift's generic ground — image
 primitives, colour, containers, metadata, and the migrated codecs — now comes
-from [gamut](https://github.com/justin13888/gamut), consumed as a git
+from [gamut](https://github.com/visualcommons/gamut), consumed as a git
 dependency pinned to an exact commit hash. **Release shape:** a git-pinned
 dependency cannot be published to crates.io, so v1 ships as a
 **git-consumable release** (tag + pinned gamut hash) until gamut publishes;
@@ -209,7 +209,7 @@ hung off them:
 - `CFAPattern` is now also accepted from UNDEFINED-typed IFD fields
   (previously BYTE only, silently defaulting to RGGB).
 
-## [0.1.1](https://github.com/justin13888/rawshift/compare/v0.1.0...v0.1.1) - 2026-05-29
+## [0.1.1](https://github.com/visualcommons/rawshift/compare/v0.1.0...v0.1.1) - 2026-05-29
 
 ### Added
 
@@ -220,7 +220,7 @@ hung off them:
 - move format and feature docs to per-crate READMEs
 - add the per-crate README files
 
-## [0.1.0](https://github.com/justin13888/rawshift/releases/tag/v0.1.0) - 2026-05-29
+## [0.1.0](https://github.com/visualcommons/rawshift/releases/tag/v0.1.0) - 2026-05-29
 
 Initial release.
 

@@ -13,8 +13,8 @@ version = "0.1.1"
 edition = "2024"
 rust-version = "1.92.0"
 license = "MPL-2.0"
-repository = "https://github.com/justin13888/rawshift"
-homepage = "https://github.com/justin13888/rawshift"
+repository = "https://github.com/visualcommons/rawshift"
+homepage = "https://github.com/visualcommons/rawshift"
 
 [workspace.dependencies]
 # gamut — upstream home for image primitives, color, metadata, container
@@ -25,24 +25,24 @@ homepage = "https://github.com/justin13888/rawshift"
 #
 # Bumping this pin is a deliberate, reviewed change — see README "Bumping the
 # gamut pin" for the required procedure.
-gamut-core = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-color = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-exif = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-ifd = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-dng = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-metadata = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-xmp = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-icc = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-jpeg = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-core = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-color = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-exif = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-ifd = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-dng = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-metadata = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-xmp = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-icc = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-jpeg = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
 # default-features off: gamut-jxl defaults to decode+encode; rawshift's
 # `jxl-decode` / `jxl-encode` features select the halves explicitly.
-gamut-jxl = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151", default-features = false }
-gamut-png = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-avif = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
-gamut-heic = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-jxl = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151", default-features = false }
+gamut-png = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-avif = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-heic = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
 # Dev-only in rawshift-image: constructs synthetic HEIF containers for the
 # backend-less HEIC enumeration/decode-pipeline tests.
-gamut-isobmff = { git = "https://github.com/justin13888/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
+gamut-isobmff = { git = "https://github.com/visualcommons/gamut", rev = "dde9f640ab02ec9c3437c3f1181164f6e7c60151" }
 
 # Shared infrastructure dependencies (used across multiple workspace crates).
 thiserror = "2.0"

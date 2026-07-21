@@ -129,11 +129,11 @@ them here would duplicate state that drifts. See each crate's README:
 
 ## MSRV
 
-The minimum supported Rust version (MSRV) tracks the minimum required by our upstream dependencies (currently **1.92.0**, set by [gamut](https://github.com/justin13888/gamut)) and will remain as low as the upstream dependencies require — it is never raised independently.
+The minimum supported Rust version (MSRV) tracks the minimum required by our upstream dependencies (currently **1.92.0**, set by [gamut](https://github.com/visualcommons/gamut)) and will remain as low as the upstream dependencies require — it is never raised independently.
 
 ## Upstream dependency: gamut
 
-rawshift consumes [gamut](https://github.com/justin13888/gamut) for image primitives, color, metadata, container parsing, and codecs. It is a git dependency pinned to an **exact commit hash** in the workspace `Cargo.toml` — never a branch, never crates.io (until gamut publishes). See [AGENTS.md](AGENTS.md) for the upstream-first policy that governs when rawshift may change in response to a gamut gap.
+rawshift consumes [gamut](https://github.com/visualcommons/gamut) for image primitives, color, metadata, container parsing, and codecs. It is a git dependency pinned to an **exact commit hash** in the workspace `Cargo.toml` — never a branch, never crates.io (until gamut publishes). See [AGENTS.md](AGENTS.md) for the upstream-first policy that governs when rawshift may change in response to a gamut gap.
 
 ### Bumping the gamut pin
 
